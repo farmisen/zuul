@@ -2,7 +2,8 @@ use clap::Parser;
 
 use zuul::cli::{Cli, Command, EnvCommand, SecretCommand};
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let cli = Cli::parse();
 
     match cli.command {

@@ -1,3 +1,5 @@
+pub mod gcp;
+
 use std::collections::HashMap;
 
 use crate::error::ZuulError;
