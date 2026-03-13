@@ -6,7 +6,7 @@ use zuul::backend::gcp::GcpClient;
 use zuul::backend::gcp_backend::GcpBackend;
 use zuul::cli::{
     Cli, Command, EnvCommand, MetadataCommand, SecretCommand, auth, env, export, init, metadata,
-    secret,
+    run, secret,
 };
 use zuul::config::{CliOverrides, Config, load_config};
 use zuul::error::ZuulError;
@@ -166,7 +166,16 @@ async fn run(cli: Cli) -> Result<(), ZuulError> {
             )
             .await?;
         }
-        Command::Run { .. } => todo!("zuul run"),
+        Command::Run {
+            no_local,
+            ref command,
+        } => {
+            let config = resolve_config(&cli)?;
+            let backend = create_backend(&config).await?;
+            let env = secret::require_env(config.default_environment.as_deref())?;
+            let exit_code = run::run(&backend, &config, env, no_local, command).await?;
+            process::exit(exit_code);
+        }
         Command::Import { .. } => todo!("zuul import"),
     }
 

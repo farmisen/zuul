@@ -3,6 +3,7 @@ pub mod env;
 pub mod export;
 pub mod init;
 pub mod metadata;
+pub mod run;
 pub mod secret;
 
 use std::path::PathBuf;
