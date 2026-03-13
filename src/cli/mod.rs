@@ -1,6 +1,8 @@
 pub mod auth;
 pub mod env;
 pub mod init;
+pub mod metadata;
+pub mod secret;
 
 use std::path::PathBuf;
 

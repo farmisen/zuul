@@ -204,7 +204,9 @@ SecretValue {
 
 ### 4.3 Metadata
 
-Arbitrary key-value pairs attached to a secret+environment combination. Stored as GCP annotations with the `zuul-meta--` prefix.
+Arbitrary key-value pairs attached to a logical secret, shared across all environments where it exists. Stored as GCP annotations with the `zuul-meta--` prefix on each underlying GCP secret.
+
+**Shared behavior:** When metadata is set or deleted, the operation is applied to all environments where the secret exists. This keeps metadata consistent across environments (e.g., `owner` or `rotate-by` applies to `DATABASE_URL` regardless of environment). The `--env` flag can optionally scope the operation to a single environment.
 
 **Reserved metadata keys** (zuul may use these for built-in features in the future):
 
@@ -409,12 +411,12 @@ This is a convenience wrapper around `get` + `set`. If the secret already exists
 
 #### `zuul secret metadata`
 
-Manage secret metadata.
+Manage secret metadata. Metadata is shared across all environments where a secret exists. The `--env` flag is optional — if omitted, the operation applies to all environments.
 
 ```
-zuul secret metadata list <name> --env <e>                # List all metadata k/v pairs
-zuul secret metadata set <name> --env <e> <key> <value>   # Set a metadata entry
-zuul secret metadata delete <name> --env <e> <key>        # Remove a metadata entry
+zuul secret metadata list <name> [--env <e>]                # List all metadata k/v pairs
+zuul secret metadata set <name> <key> <value> [--env <e>]   # Set a metadata entry (all envs)
+zuul secret metadata delete <name> <key> [--env <e>]        # Remove a metadata entry (all envs)
 ```
 
 #### `zuul export`
@@ -703,7 +705,7 @@ zuul/
 ## 14. Open Questions
 
 1. **Environment rename atomicity:** Renaming an environment requires renaming N GCP secrets. Should zuul track rename progress (e.g., in a `zuul__registry__migrations` secret) to handle interrupted renames, or is the idempotent re-run approach sufficient?
-2. **Metadata scoping:** Should metadata be per secret+environment (current design), per logical secret (shared across environments), or both?
+2. ~~**Metadata scoping:** Should metadata be per secret+environment (current design), per logical secret (shared across environments), or both?~~ **Resolved:** Metadata is shared across environments by default. Set/delete operations apply to all environments where the secret exists. The `--env` flag can scope to a single environment when needed. Stored as GCP annotations on each underlying secret, kept in sync at the CLI layer.
 3. **`zuul diff` value display:** Should diff show full values, truncated values, or just indicate "differs" / "matches"? Full values may be sensitive; truncated values may not be useful.
 
 ---
@@ -775,9 +777,9 @@ zuul secret set TLS_CERT --env production --from-file ./certs/server.pem
 # View which environments have DATABASE_URL
 zuul secret info DATABASE_URL
 
-# Add metadata
-zuul secret metadata set DATABASE_URL --env production rotate-by "2026-06-01"
-zuul secret metadata set DATABASE_URL --env production owner "backend-team"
+# Add metadata (shared across all environments where DATABASE_URL exists)
+zuul secret metadata set DATABASE_URL rotate-by "2026-06-01"
+zuul secret metadata set DATABASE_URL owner "backend-team"
 ```
 
 ### A.5 Developer Workflow

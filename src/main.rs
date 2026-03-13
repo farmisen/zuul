@@ -4,7 +4,9 @@ use clap::Parser;
 
 use zuul::backend::gcp::GcpClient;
 use zuul::backend::gcp_backend::GcpBackend;
-use zuul::cli::{Cli, Command, EnvCommand, SecretCommand, auth, env, init};
+use zuul::cli::{
+    Cli, Command, EnvCommand, MetadataCommand, SecretCommand, auth, env, init, metadata, secret,
+};
 use zuul::config::{CliOverrides, Config, load_config};
 use zuul::error::ZuulError;
 
@@ -86,15 +88,65 @@ async fn run(cli: Cli) -> Result<(), ZuulError> {
                 }
             }
         }
-        Command::Secret { command } => match command {
-            SecretCommand::List => todo!("zuul secret list"),
-            SecretCommand::Get { .. } => todo!("zuul secret get"),
-            SecretCommand::Set { .. } => todo!("zuul secret set"),
-            SecretCommand::Delete { .. } => todo!("zuul secret delete"),
-            SecretCommand::Info { .. } => todo!("zuul secret info"),
-            SecretCommand::Copy { .. } => todo!("zuul secret copy"),
-            SecretCommand::Metadata { .. } => todo!("zuul secret metadata"),
-        },
+        Command::Secret { ref command } => {
+            let config = resolve_config(&cli)?;
+            let backend = create_backend(&config).await?;
+            let env = config.default_environment.as_deref();
+            match command {
+                SecretCommand::List => {
+                    secret::list(&backend, env, &cli.format).await?;
+                }
+                SecretCommand::Get { name } => {
+                    secret::get(&backend, name, env).await?;
+                }
+                SecretCommand::Set {
+                    name,
+                    value,
+                    from_file,
+                    from_stdin,
+                } => {
+                    secret::set(
+                        &backend,
+                        name,
+                        env,
+                        value.as_deref(),
+                        from_file.as_deref(),
+                        *from_stdin,
+                        cli.quiet,
+                    )
+                    .await?;
+                }
+                SecretCommand::Delete {
+                    name,
+                    force,
+                    dry_run,
+                } => {
+                    secret::delete(&backend, name, env, *force, *dry_run, &cli.format).await?;
+                }
+                SecretCommand::Info { name } => {
+                    secret::info(&backend, name, env, &cli.format).await?;
+                }
+                SecretCommand::Copy {
+                    name,
+                    from,
+                    to,
+                    force,
+                } => {
+                    secret::copy(&backend, name, from, to, *force, cli.quiet).await?;
+                }
+                SecretCommand::Metadata { command: meta_cmd } => match meta_cmd {
+                    MetadataCommand::List { name } => {
+                        metadata::list(&backend, name, env, &cli.format).await?;
+                    }
+                    MetadataCommand::Set { name, key, value } => {
+                        metadata::set(&backend, name, env, key, value, cli.quiet).await?;
+                    }
+                    MetadataCommand::Delete { name, key } => {
+                        metadata::delete(&backend, name, env, key, cli.quiet).await?;
+                    }
+                },
+            }
+        }
         Command::Export { .. } => todo!("zuul export"),
         Command::Run { .. } => todo!("zuul run"),
         Command::Import { .. } => todo!("zuul import"),
