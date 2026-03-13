@@ -25,11 +25,28 @@ variable "environments" {
 }
 
 variable "admin_emails" {
-  description = "Email addresses of users or service accounts that should receive secretmanager.admin role. Used by IAM bindings in the iam module."
+  description = "Email addresses of users or service accounts that should receive secretmanager.admin role."
   type        = list(string)
 
   validation {
     condition     = length(var.admin_emails) > 0
     error_message = "At least one admin email must be specified."
+  }
+}
+
+variable "environment_accessors" {
+  description = "Map of zuul environment name to list of IAM members (e.g. user:alice@co.com, serviceAccount:ci@proj.iam.gserviceaccount.com) that should receive read-only access to that environment's secrets."
+  type        = map(list(string))
+  default     = {}
+}
+
+variable "service_accounts" {
+  description = "Map of service account name to zuul environment name. Creates a dedicated service account scoped to that environment's secrets. Multiple SAs can target the same environment."
+  type        = map(string)
+  default     = {}
+
+  validation {
+    condition     = alltrue([for name, _ in var.service_accounts : can(regex("^[a-z][a-z0-9-]{4,28}[a-z0-9]$", name))])
+    error_message = "Service account names must be 6-30 chars, lowercase, digits, hyphens, start with letter, end with letter or digit."
   }
 }
