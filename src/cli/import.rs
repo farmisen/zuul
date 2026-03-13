@@ -153,8 +153,7 @@ fn parse_dotenv(content: &str) -> Result<Vec<(String, String)>, ZuulError> {
 /// Remove surrounding quotes and unescape common escape sequences.
 fn unquote(s: &str) -> String {
     if s.len() >= 2
-        && ((s.starts_with('"') && s.ends_with('"'))
-            || (s.starts_with('\'') && s.ends_with('\'')))
+        && ((s.starts_with('"') && s.ends_with('"')) || (s.starts_with('\'') && s.ends_with('\'')))
     {
         let inner = &s[1..s.len() - 1];
         if s.starts_with('"') {

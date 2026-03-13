@@ -2,7 +2,9 @@ use std::collections::HashMap;
 use std::env;
 use std::time::Duration;
 
+use async_trait::async_trait;
 use backon::{ExponentialBuilder, Retryable};
+use chrono::{Duration as ChronoDuration, Utc};
 use gcloud_sdk::google::cloud::secretmanager::v1::secret_manager_service_client::SecretManagerServiceClient;
 use gcloud_sdk::google::cloud::secretmanager::v1::{
     AccessSecretVersionRequest, AddSecretVersionRequest, CreateSecretRequest, DeleteSecretRequest,
@@ -10,9 +12,26 @@ use gcloud_sdk::google::cloud::secretmanager::v1::{
 };
 use gcloud_sdk::prost_types::FieldMask;
 use gcloud_sdk::tonic::Code;
-use gcloud_sdk::{GoogleApi, GoogleAuthMiddleware};
+use gcloud_sdk::{BoxSource, GoogleApi, GoogleAuthMiddleware, Source, Token, TokenSourceType};
 
 use crate::error::ZuulError;
+
+/// Environment variable to override the Secret Manager endpoint (for emulator use).
+const EMULATOR_HOST_ENV: &str = "SECRET_MANAGER_EMULATOR_HOST";
+
+/// Dummy token source for connecting to a Secret Manager emulator without real credentials.
+struct EmulatorTokenSource;
+
+#[async_trait]
+impl Source for EmulatorTokenSource {
+    async fn token(&self) -> gcloud_sdk::error::Result<Token> {
+        Ok(Token::new(
+            "Bearer".to_string(),
+            "emulator-token".into(),
+            Utc::now() + ChronoDuration::hours(1),
+        ))
+    }
+}
 
 /// Page size for list operations.
 const LIST_PAGE_SIZE: i32 = 100;
@@ -43,25 +62,41 @@ impl GcpClient {
     /// 1. `credentials_path` argument (from config or CLI)
     /// 2. `ZUUL_GCP_CREDENTIALS` environment variable
     /// 3. Application Default Credentials (ADC) — e.g., from `gcloud auth application-default login`
+    ///
+    /// If `SECRET_MANAGER_EMULATOR_HOST` is set, connects to that endpoint
+    /// with a dummy token (no real credentials needed).
     pub async fn new(project_id: &str, credentials_path: Option<&str>) -> Result<Self, ZuulError> {
-        // Map credentials to GOOGLE_APPLICATION_CREDENTIALS so gcloud-sdk picks them up.
-        // Priority: explicit path > ZUUL_GCP_CREDENTIALS env var > ADC (automatic).
-        let creds = credentials_path
-            .map(String::from)
-            .or_else(|| env::var("ZUUL_GCP_CREDENTIALS").ok());
-        if let Some(path) = creds {
-            // SAFETY: called once during single-threaded client init, before tokio spawns tasks.
-            unsafe {
-                env::set_var("GOOGLE_APPLICATION_CREDENTIALS", path);
+        let client = if let Ok(emulator_host) = env::var(EMULATOR_HOST_ENV) {
+            // Connect to emulator without real credentials.
+            let dummy_source: BoxSource = Box::new(EmulatorTokenSource);
+            GoogleApi::from_function_with_token_source(
+                SecretManagerServiceClient::new,
+                &emulator_host,
+                None,
+                vec!["https://www.googleapis.com/auth/cloud-platform".into()],
+                TokenSourceType::ExternalSource(dummy_source),
+            )
+            .await
+        } else {
+            // Map credentials to GOOGLE_APPLICATION_CREDENTIALS so gcloud-sdk picks them up.
+            // Priority: explicit path > ZUUL_GCP_CREDENTIALS env var > ADC (automatic).
+            let creds = credentials_path
+                .map(String::from)
+                .or_else(|| env::var("ZUUL_GCP_CREDENTIALS").ok());
+            if let Some(path) = creds {
+                // SAFETY: called once during single-threaded client init, before tokio spawns tasks.
+                unsafe {
+                    env::set_var("GOOGLE_APPLICATION_CREDENTIALS", path);
+                }
             }
-        }
 
-        let client = GoogleApi::from_function(
-            SecretManagerServiceClient::new,
-            "https://secretmanager.googleapis.com",
-            None,
-        )
-        .await
+            GoogleApi::from_function(
+                SecretManagerServiceClient::new,
+                "https://secretmanager.googleapis.com",
+                None,
+            )
+            .await
+        }
         .map_err(|e| ZuulError::Auth(format!("Failed to authenticate with GCP: {e}.")))?;
 
         Ok(Self {
