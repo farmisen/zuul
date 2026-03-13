@@ -1,3 +1,5 @@
+pub mod init;
+
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand, ValueEnum};

@@ -1,13 +1,28 @@
+use std::process;
+
 use clap::Parser;
 
-use zuul::cli::{Cli, Command, EnvCommand, SecretCommand};
+use zuul::cli::{Cli, Command, EnvCommand, SecretCommand, init};
 
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
 
+    let result = run(cli).await;
+    if let Err(e) = result {
+        eprintln!("Error: {e}");
+        process::exit(1);
+    }
+}
+
+async fn run(cli: Cli) -> Result<(), zuul::error::ZuulError> {
     match cli.command {
-        Command::Init { .. } => todo!("zuul init"),
+        Command::Init { project, backend } => {
+            let cwd = std::env::current_dir().map_err(|e| {
+                zuul::error::ZuulError::Config(format!("Failed to get current directory: {e}"))
+            })?;
+            init::run(&cwd, project, &backend)?;
+        }
         Command::Auth { .. } => todo!("zuul auth"),
         Command::Env { command } => match command {
             EnvCommand::List => todo!("zuul env list"),
@@ -29,4 +44,6 @@ async fn main() {
         Command::Run { .. } => todo!("zuul run"),
         Command::Import { .. } => todo!("zuul import"),
     }
+
+    Ok(())
 }
