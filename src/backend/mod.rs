@@ -1,4 +1,5 @@
 pub mod gcp;
+pub mod gcp_backend;
 
 use std::collections::HashMap;
 
@@ -37,12 +38,8 @@ pub trait Backend: Send + Sync {
         new_description: Option<&str>,
     ) -> impl Future<Output = Result<Environment, ZuulError>> + Send;
 
-    /// Delete an environment. Fails if secrets are bound unless `force` is true.
-    fn delete_environment(
-        &self,
-        name: &str,
-        force: bool,
-    ) -> impl Future<Output = Result<(), ZuulError>> + Send;
+    /// Delete an environment and all its bound secrets.
+    fn delete_environment(&self, name: &str) -> impl Future<Output = Result<(), ZuulError>> + Send;
 
     // --- Secret operations ---
 
