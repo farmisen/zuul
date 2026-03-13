@@ -7,14 +7,15 @@ description = "CLI tool for managing secrets across multiple environments, backe
 
 [dependencies]
 anyhow = "1"
+backon = "1.6.0"
 chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4", features = ["derive"] }
+crc32c = "0.6.8"
 gcloud-sdk = { version = "0.28", features = ["google-cloud-secretmanager-v1"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
-tonic = "0.12"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
 toml = "0.8"
 
 [dev-dependencies]
