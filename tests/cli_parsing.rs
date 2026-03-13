@@ -58,19 +58,13 @@ fn env_create_with_description() {
 }
 
 #[test]
-fn env_delete_force_dry_run() {
-    let cli = parse(&["env", "delete", "staging", "--force", "--dry-run"]);
+fn env_delete_dry_run() {
+    let cli = parse(&["env", "delete", "staging", "--dry-run"]);
     match cli.command {
         Command::Env {
-            command:
-                EnvCommand::Delete {
-                    name,
-                    force,
-                    dry_run,
-                },
+            command: EnvCommand::Delete { name, dry_run },
         } => {
             assert_eq!(name, "staging");
-            assert!(force);
             assert!(dry_run);
         }
         _ => panic!("expected Env Delete"),

@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod env;
 pub mod init;
 
 use std::path::PathBuf;
@@ -162,11 +163,7 @@ pub enum EnvCommand {
         /// Environment name
         name: String,
 
-        /// Force delete even if secrets are bound
-        #[arg(long)]
-        force: bool,
-
-        /// Preview what would be deleted
+        /// Preview what would be deleted without making changes
         #[arg(long)]
         dry_run: bool,
     },
