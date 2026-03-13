@@ -3,3 +3,4 @@
 .tldr/
 .tldrignore
 .zuul.local.toml
+.terraform/
