@@ -1,14 +1,23 @@
 use std::collections::HashMap;
 
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 
 use crate::backend::Backend;
 use crate::backend::gcp::GcpClient;
 use crate::error::{ResourceType, ZuulError};
-use crate::models::{Environment, Registry, SecretEntry, SecretValue, validate_environment_name};
+use crate::models::{
+    Environment, Registry, SecretEntry, SecretValue, validate_environment_name,
+    validate_secret_name,
+};
 
 /// The GCP secret name used to store the environment registry.
 const REGISTRY_SECRET_ID: &str = "zuul__registry";
+
+/// Convert a protobuf `Timestamp` to a chrono `DateTime<Utc>`.
+fn proto_timestamp_to_chrono(ts: Option<gcloud_sdk::prost_types::Timestamp>) -> DateTime<Utc> {
+    ts.and_then(|t| DateTime::from_timestamp(t.seconds, t.nanos as u32))
+        .unwrap_or_else(Utc::now)
+}
 
 /// GCP Secret Manager backend implementation.
 ///
@@ -24,12 +33,50 @@ impl GcpBackend {
         Self { client }
     }
 
+    /// Build the GCP secret ID for a zuul-managed secret.
+    fn secret_id(environment: &str, name: &str) -> String {
+        format!("zuul__{environment}__{name}")
+    }
+
+    /// Build the standard labels for a zuul-managed secret.
+    fn zuul_labels(environment: &str, name: &str) -> HashMap<String, String> {
+        HashMap::from([
+            ("zuul-managed".to_string(), "true".to_string()),
+            ("zuul-env".to_string(), environment.to_string()),
+            ("zuul-name".to_string(), name.to_string()),
+        ])
+    }
+
+    /// Extract the version number from a full version resource name.
+    ///
+    /// Input format: `projects/{project}/secrets/{id}/versions/{version}`
+    fn extract_version(version_name: &str) -> String {
+        version_name
+            .rsplit('/')
+            .next()
+            .unwrap_or("unknown")
+            .to_string()
+    }
+
+    /// Verify that an environment exists in the registry.
+    async fn ensure_environment_exists(&self, environment: &str) -> Result<(), ZuulError> {
+        let registry = self.read_registry().await?;
+        if !registry.environments.contains_key(environment) {
+            return Err(ZuulError::NotFound {
+                resource_type: ResourceType::Environment,
+                name: environment.to_string(),
+                environment: None,
+            });
+        }
+        Ok(())
+    }
+
     /// Read the environment registry from GCP.
     ///
     /// If the registry secret does not exist yet, returns an empty registry.
     async fn read_registry(&self) -> Result<Registry, ZuulError> {
         match self.client.access_secret_version(REGISTRY_SECRET_ID).await {
-            Ok(data) => {
+            Ok((data, _)) => {
                 let json = String::from_utf8(data).map_err(|e| {
                     ZuulError::Backend(format!("Registry contains invalid UTF-8: {e}"))
                 })?;
@@ -213,30 +260,139 @@ impl Backend for GcpBackend {
         Ok(())
     }
 
-    // --- Secret operations (implemented in 1.4) ---
+    // --- Secret operations ---
 
-    async fn list_secrets(
-        &self,
-        _environment: Option<&str>,
-    ) -> Result<Vec<SecretEntry>, ZuulError> {
-        todo!("Implemented in 1.4")
+    async fn list_secrets(&self, environment: Option<&str>) -> Result<Vec<SecretEntry>, ZuulError> {
+        let filter = match environment {
+            Some(env) => format!("labels.zuul-managed=true AND labels.zuul-env={env}"),
+            None => "labels.zuul-managed=true".to_string(),
+        };
+
+        let secrets = self.client.list_secrets(&filter).await?;
+
+        // Group by secret name, collecting environments.
+        let mut entries: HashMap<String, Vec<String>> = HashMap::new();
+        for secret in &secrets {
+            let name = secret.labels.get("zuul-name").cloned().unwrap_or_default();
+            let env = secret.labels.get("zuul-env").cloned().unwrap_or_default();
+            if !name.is_empty() {
+                entries.entry(name).or_default().push(env);
+            }
+        }
+
+        let mut result: Vec<SecretEntry> = entries
+            .into_iter()
+            .map(|(name, mut environments)| {
+                environments.sort();
+                SecretEntry {
+                    name,
+                    environments,
+                    metadata: HashMap::new(),
+                }
+            })
+            .collect();
+        result.sort_by(|a, b| a.name.cmp(&b.name));
+
+        Ok(result)
     }
 
-    async fn get_secret(&self, _name: &str, _environment: &str) -> Result<SecretValue, ZuulError> {
-        todo!("Implemented in 1.4")
+    async fn get_secret(&self, name: &str, environment: &str) -> Result<SecretValue, ZuulError> {
+        self.ensure_environment_exists(environment).await?;
+
+        let secret_id = Self::secret_id(environment, name);
+
+        // Get the secret metadata for create_time.
+        let secret_meta = self.client.get_secret(&secret_id).await.map_err(|e| {
+            if matches!(&e, ZuulError::Backend(msg) if msg.contains("not found")) {
+                ZuulError::NotFound {
+                    resource_type: ResourceType::Secret,
+                    name: name.to_string(),
+                    environment: Some(environment.to_string()),
+                }
+            } else {
+                e
+            }
+        })?;
+
+        let created_at = proto_timestamp_to_chrono(secret_meta.create_time);
+
+        // Access the latest version for the value and version name.
+        let (data, version_name) = self
+            .client
+            .access_secret_version(&secret_id)
+            .await
+            .map_err(|e| {
+                if matches!(&e, ZuulError::Backend(msg) if msg.contains("not found")) {
+                    ZuulError::NotFound {
+                        resource_type: ResourceType::Secret,
+                        name: name.to_string(),
+                        environment: Some(environment.to_string()),
+                    }
+                } else {
+                    e
+                }
+            })?;
+
+        let value = String::from_utf8(data)
+            .map_err(|e| ZuulError::Backend(format!("Secret value contains invalid UTF-8: {e}")))?;
+
+        Ok(SecretValue {
+            name: name.to_string(),
+            environment: environment.to_string(),
+            value,
+            version: Self::extract_version(&version_name),
+            created_at,
+            updated_at: created_at,
+        })
     }
 
     async fn set_secret(
         &self,
-        _name: &str,
-        _environment: &str,
-        _value: &str,
+        name: &str,
+        environment: &str,
+        value: &str,
     ) -> Result<(), ZuulError> {
-        todo!("Implemented in 1.4")
+        validate_secret_name(name).map_err(ZuulError::Validation)?;
+        self.ensure_environment_exists(environment).await?;
+
+        let secret_id = Self::secret_id(environment, name);
+        let labels = Self::zuul_labels(environment, name);
+
+        // Try to add a version. If the secret doesn't exist, create it first.
+        match self
+            .client
+            .add_secret_version(&secret_id, value.as_bytes())
+            .await
+        {
+            Ok(()) => Ok(()),
+            Err(ZuulError::Backend(msg)) if msg.contains("not found") => {
+                self.client
+                    .create_secret(&secret_id, labels, HashMap::new())
+                    .await?;
+                self.client
+                    .add_secret_version(&secret_id, value.as_bytes())
+                    .await
+            }
+            Err(e) => Err(e),
+        }
     }
 
-    async fn delete_secret(&self, _name: &str, _environment: &str) -> Result<(), ZuulError> {
-        todo!("Implemented in 1.4")
+    async fn delete_secret(&self, name: &str, environment: &str) -> Result<(), ZuulError> {
+        self.ensure_environment_exists(environment).await?;
+
+        let secret_id = Self::secret_id(environment, name);
+
+        self.client.delete_secret(&secret_id).await.map_err(|e| {
+            if matches!(&e, ZuulError::Backend(msg) if msg.contains("not found")) {
+                ZuulError::NotFound {
+                    resource_type: ResourceType::Secret,
+                    name: name.to_string(),
+                    environment: Some(environment.to_string()),
+                }
+            } else {
+                e
+            }
+        })
     }
 
     // --- Metadata operations (implemented in 1.5) ---
@@ -268,13 +424,52 @@ impl Backend for GcpBackend {
         todo!("Implemented in 1.5")
     }
 
-    // --- Bulk operations (implemented in 1.4) ---
+    // --- Bulk operations ---
 
     async fn list_secrets_for_environment(
         &self,
-        _environment: &str,
+        environment: &str,
     ) -> Result<Vec<(String, SecretValue)>, ZuulError> {
-        todo!("Implemented in 1.4")
+        self.ensure_environment_exists(environment).await?;
+
+        let filter = format!("labels.zuul-managed=true AND labels.zuul-env={environment}");
+        let secrets = self.client.list_secrets(&filter).await?;
+
+        let mut results = Vec::new();
+        for secret in &secrets {
+            let name = match secret.labels.get("zuul-name") {
+                Some(n) => n.clone(),
+                None => continue,
+            };
+
+            let gcp_secret_id = match secret.name.rsplit('/').next() {
+                Some(id) => id,
+                None => continue,
+            };
+
+            let created_at = proto_timestamp_to_chrono(secret.create_time);
+
+            match self.client.access_secret_version(gcp_secret_id).await {
+                Ok((data, version_name)) => {
+                    let value = String::from_utf8(data).unwrap_or_default();
+                    results.push((
+                        name.clone(),
+                        SecretValue {
+                            name,
+                            environment: environment.to_string(),
+                            value,
+                            version: Self::extract_version(&version_name),
+                            created_at,
+                            updated_at: created_at,
+                        },
+                    ));
+                }
+                Err(_) => continue,
+            }
+        }
+
+        results.sort_by(|a, b| a.0.cmp(&b.0));
+        Ok(results)
     }
 }
 
@@ -351,6 +546,69 @@ mod tests {
         let parsed: Registry = serde_json::from_str(&json).unwrap();
         // After deserialization, name field is empty (needs to be set from map key)
         assert_eq!(parsed.environments["dev"].name, "");
+    }
+
+    // --- Helper function tests ---
+
+    #[test]
+    fn secret_id_format() {
+        assert_eq!(
+            GcpBackend::secret_id("production", "DATABASE_URL"),
+            "zuul__production__DATABASE_URL"
+        );
+        assert_eq!(
+            GcpBackend::secret_id("dev", "API_KEY"),
+            "zuul__dev__API_KEY"
+        );
+    }
+
+    #[test]
+    fn zuul_labels_contains_required_keys() {
+        let labels = GcpBackend::zuul_labels("staging", "SECRET_KEY");
+        assert_eq!(labels.get("zuul-managed").unwrap(), "true");
+        assert_eq!(labels.get("zuul-env").unwrap(), "staging");
+        assert_eq!(labels.get("zuul-name").unwrap(), "SECRET_KEY");
+        assert_eq!(labels.len(), 3);
+    }
+
+    #[test]
+    fn extract_version_from_resource_name() {
+        assert_eq!(
+            GcpBackend::extract_version("projects/my-proj/secrets/my-secret/versions/3"),
+            "3"
+        );
+        assert_eq!(
+            GcpBackend::extract_version("projects/p/secrets/s/versions/42"),
+            "42"
+        );
+    }
+
+    #[test]
+    fn extract_version_from_bare_number() {
+        assert_eq!(GcpBackend::extract_version("7"), "7");
+    }
+
+    #[test]
+    fn extract_version_empty_string() {
+        assert_eq!(GcpBackend::extract_version(""), "");
+    }
+
+    #[test]
+    fn proto_timestamp_conversion() {
+        let ts = gcloud_sdk::prost_types::Timestamp {
+            seconds: 1710072000, // 2024-03-10T12:00:00Z
+            nanos: 0,
+        };
+        let dt = proto_timestamp_to_chrono(Some(ts));
+        assert_eq!(dt.timestamp(), 1710072000);
+    }
+
+    #[test]
+    fn proto_timestamp_none_returns_now() {
+        let dt = proto_timestamp_to_chrono(None);
+        // Should be very close to now
+        let diff = (Utc::now() - dt).num_seconds().abs();
+        assert!(diff < 2);
     }
 
     #[test]

@@ -218,8 +218,12 @@ impl GcpClient {
         Ok(())
     }
 
-    /// Access the latest version of a secret, returning the raw payload bytes.
-    pub async fn access_secret_version(&self, secret_id: &str) -> Result<Vec<u8>, ZuulError> {
+    /// Access the latest version of a secret, returning the payload bytes and
+    /// the full version resource name (e.g., `projects/p/secrets/s/versions/3`).
+    pub async fn access_secret_version(
+        &self,
+        secret_id: &str,
+    ) -> Result<(Vec<u8>, String), ZuulError> {
         let request = AccessSecretVersionRequest {
             name: self.secret_version_path(secret_id),
         };
@@ -235,12 +239,14 @@ impl GcpClient {
         .await
         .map_err(map_status)?;
 
-        let payload = response
-            .into_inner()
+        let inner = response.into_inner();
+        let version_name = inner.name.clone();
+
+        let payload = inner
             .payload
             .ok_or_else(|| ZuulError::Backend("Secret version has no payload".to_string()))?;
 
-        Ok(payload.data.ref_sensitive_value().to_vec())
+        Ok((payload.data.ref_sensitive_value().to_vec(), version_name))
     }
 
     /// Update a secret's labels and/or annotations.
