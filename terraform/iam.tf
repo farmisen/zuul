@@ -9,8 +9,24 @@ locals {
     ]
   ])
 
-  # Deduplicate members across environments for registry read access
+  # Deduplicate members across environments for registry read and project access
   registry_readers = distinct(flatten(values(var.environment_accessors)))
+
+  # All unique members (admins + accessors) who need project-level access
+  all_project_members = distinct(concat(
+    [for email in var.admin_emails : "user:${email}"],
+    local.registry_readers,
+  ))
+}
+
+# --- Project-level access for all members ---
+
+resource "google_project_iam_member" "project_browser" {
+  for_each = toset(local.all_project_members)
+
+  project = var.project_id
+  role    = "roles/browser"
+  member  = each.value
 }
 
 # --- Admin bindings ---

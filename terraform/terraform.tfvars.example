@@ -1,0 +1,31 @@
+# GCP project where zuul secrets will be stored (required)
+project_id = "my-gcp-project-123"
+
+# Zuul environment names (optional, defaults to ["production", "staging", "dev"])
+environments = ["production", "staging", "dev"]
+
+# Users who get full secretmanager.admin access (required)
+admin_emails = [
+  "ops@company.com",
+]
+
+# Per-environment read-only access (optional)
+# Keys are zuul environment names, values are lists of IAM members.
+# Members must use the full IAM format: user:, serviceAccount:, or group:
+environment_accessors = {
+  dev = [
+    "user:alice@company.com",
+    "user:bob@company.com",
+  ]
+  staging = [
+    "user:alice@company.com",
+  ]
+}
+
+# Service accounts to create (optional)
+# Keys are SA names (will be prefixed with "zuul-"), values are the zuul
+# environment they can access. Multiple SAs can target the same environment.
+service_accounts = {
+  "staging-ci"        = "staging"
+  "production-deploy" = "production"
+}
