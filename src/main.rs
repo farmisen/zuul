@@ -5,7 +5,8 @@ use clap::Parser;
 use zuul::backend::gcp::GcpClient;
 use zuul::backend::gcp_backend::GcpBackend;
 use zuul::cli::{
-    Cli, Command, EnvCommand, MetadataCommand, SecretCommand, auth, env, init, metadata, secret,
+    Cli, Command, EnvCommand, MetadataCommand, SecretCommand, auth, env, export, init, metadata,
+    secret,
 };
 use zuul::config::{CliOverrides, Config, load_config};
 use zuul::error::ZuulError;
@@ -147,7 +148,24 @@ async fn run(cli: Cli) -> Result<(), ZuulError> {
                 },
             }
         }
-        Command::Export { .. } => todo!("zuul export"),
+        Command::Export {
+            ref export_format,
+            ref output,
+            no_local,
+        } => {
+            let config = resolve_config(&cli)?;
+            let backend = create_backend(&config).await?;
+            let env = secret::require_env(config.default_environment.as_deref())?;
+            export::run(
+                &backend,
+                &config,
+                env,
+                export_format,
+                output.as_deref(),
+                no_local,
+            )
+            .await?;
+        }
         Command::Run { .. } => todo!("zuul run"),
         Command::Import { .. } => todo!("zuul import"),
     }
