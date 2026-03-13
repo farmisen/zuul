@@ -1,3 +1,4 @@
+pub mod auth;
 pub mod init;
 
 use std::path::PathBuf;

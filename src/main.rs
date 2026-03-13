@@ -2,7 +2,9 @@ use std::process;
 
 use clap::Parser;
 
-use zuul::cli::{Cli, Command, EnvCommand, SecretCommand, init};
+use zuul::cli::{Cli, Command, EnvCommand, SecretCommand, auth, init};
+use zuul::config::{CliOverrides, load_config};
+use zuul::error::ZuulError;
 
 #[tokio::main]
 async fn main() {
@@ -15,15 +17,29 @@ async fn main() {
     }
 }
 
-async fn run(cli: Cli) -> Result<(), zuul::error::ZuulError> {
+fn get_cwd() -> Result<std::path::PathBuf, ZuulError> {
+    std::env::current_dir()
+        .map_err(|e| ZuulError::Config(format!("Failed to get current directory: {e}")))
+}
+
+async fn run(cli: Cli) -> Result<(), ZuulError> {
     match cli.command {
         Command::Init { project, backend } => {
-            let cwd = std::env::current_dir().map_err(|e| {
-                zuul::error::ZuulError::Config(format!("Failed to get current directory: {e}"))
-            })?;
+            let cwd = get_cwd()?;
             init::run(&cwd, project, &backend)?;
         }
-        Command::Auth { .. } => todo!("zuul auth"),
+        Command::Auth { check } => {
+            let cwd = get_cwd()?;
+            let config = load_config(
+                &cwd,
+                &CliOverrides {
+                    project_id: cli.project.clone(),
+                    config_path: cli.config.clone(),
+                    ..Default::default()
+                },
+            )?;
+            auth::run(&config, check).await?;
+        }
         Command::Env { command } => match command {
             EnvCommand::List => todo!("zuul env list"),
             EnvCommand::Create { .. } => todo!("zuul env create"),
