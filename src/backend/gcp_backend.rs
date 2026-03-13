@@ -6,8 +6,8 @@ use crate::backend::Backend;
 use crate::backend::gcp::GcpClient;
 use crate::error::{ResourceType, ZuulError};
 use crate::models::{
-    Environment, Registry, SecretEntry, SecretValue, validate_environment_name,
-    validate_secret_name,
+    Environment, METADATA_PREFIX, Registry, SecretEntry, SecretValue, validate_environment_name,
+    validate_metadata_key, validate_secret_name,
 };
 
 /// The GCP secret name used to store the environment registry.
@@ -395,33 +395,107 @@ impl Backend for GcpBackend {
         })
     }
 
-    // --- Metadata operations (implemented in 1.5) ---
+    // --- Metadata operations ---
 
     async fn get_metadata(
         &self,
-        _name: &str,
-        _environment: &str,
+        name: &str,
+        environment: &str,
     ) -> Result<HashMap<String, String>, ZuulError> {
-        todo!("Implemented in 1.5")
+        self.ensure_environment_exists(environment).await?;
+
+        let secret_id = Self::secret_id(environment, name);
+        let secret = self.client.get_secret(&secret_id).await.map_err(|e| {
+            if matches!(&e, ZuulError::Backend(msg) if msg.contains("not found")) {
+                ZuulError::NotFound {
+                    resource_type: ResourceType::Secret,
+                    name: name.to_string(),
+                    environment: Some(environment.to_string()),
+                }
+            } else {
+                e
+            }
+        })?;
+
+        let metadata = secret
+            .annotations
+            .into_iter()
+            .filter_map(|(k, v)| k.strip_prefix(METADATA_PREFIX).map(|k| (k.to_string(), v)))
+            .collect();
+
+        Ok(metadata)
     }
 
     async fn set_metadata(
         &self,
-        _name: &str,
-        _environment: &str,
-        _key: &str,
-        _value: &str,
+        name: &str,
+        environment: &str,
+        key: &str,
+        value: &str,
     ) -> Result<(), ZuulError> {
-        todo!("Implemented in 1.5")
+        validate_metadata_key(key).map_err(ZuulError::Validation)?;
+        self.ensure_environment_exists(environment).await?;
+
+        let secret_id = Self::secret_id(environment, name);
+        let secret = self.client.get_secret(&secret_id).await.map_err(|e| {
+            if matches!(&e, ZuulError::Backend(msg) if msg.contains("not found")) {
+                ZuulError::NotFound {
+                    resource_type: ResourceType::Secret,
+                    name: name.to_string(),
+                    environment: Some(environment.to_string()),
+                }
+            } else {
+                e
+            }
+        })?;
+
+        let mut annotations = secret.annotations;
+        annotations.insert(format!("{METADATA_PREFIX}{key}"), value.to_string());
+
+        self.client
+            .update_secret(&secret_id, None, Some(annotations))
+            .await?;
+
+        Ok(())
     }
 
     async fn delete_metadata(
         &self,
-        _name: &str,
-        _environment: &str,
-        _key: &str,
+        name: &str,
+        environment: &str,
+        key: &str,
     ) -> Result<(), ZuulError> {
-        todo!("Implemented in 1.5")
+        validate_metadata_key(key).map_err(ZuulError::Validation)?;
+        self.ensure_environment_exists(environment).await?;
+
+        let secret_id = Self::secret_id(environment, name);
+        let secret = self.client.get_secret(&secret_id).await.map_err(|e| {
+            if matches!(&e, ZuulError::Backend(msg) if msg.contains("not found")) {
+                ZuulError::NotFound {
+                    resource_type: ResourceType::Secret,
+                    name: name.to_string(),
+                    environment: Some(environment.to_string()),
+                }
+            } else {
+                e
+            }
+        })?;
+
+        let annotation_key = format!("{METADATA_PREFIX}{key}");
+        let mut annotations = secret.annotations;
+        if annotations.remove(&annotation_key).is_none() {
+            return Err(ZuulError::NotFound {
+                resource_type: ResourceType::Secret,
+                name: format!("metadata key '{key}' on secret '{name}'"),
+                environment: Some(environment.to_string()),
+            });
+        }
+
+        self.client
+            .update_secret(&secret_id, None, Some(annotations))
+            .await?;
+
+        Ok(())
     }
 
     // --- Bulk operations ---

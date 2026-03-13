@@ -49,6 +49,10 @@ const MAX_ENV_NAME_LEN: usize = 50;
 const MAX_SECRET_NAME_LEN: usize = 200;
 /// Reserved environment names.
 const RESERVED_ENV_NAMES: &[&str] = &["registry", "config"];
+/// Prefix for metadata keys stored as GCP annotations.
+pub const METADATA_PREFIX: &str = "zuul-meta--";
+/// Maximum length for metadata keys (GCP annotation key limit minus prefix length).
+const MAX_METADATA_KEY_LEN: usize = 63 - 11; // 63 - len("zuul-meta--")
 
 /// Validate an environment name against the spec constraints.
 ///
@@ -127,6 +131,41 @@ pub fn validate_secret_name(name: &str) -> Result<(), String> {
             return Err(format!(
                 "Secret name '{name}' contains invalid character '{c}': \
                  only letters, digits, underscores, and hyphens are allowed"
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+/// Validate a metadata key.
+///
+/// Rules:
+/// - Must not be empty
+/// - Must match `[a-z0-9][a-z0-9_-]*` (lowercase, alphanumeric, underscores, hyphens)
+/// - Combined with prefix `zuul-meta--`, total must not exceed 63 characters (GCP limit)
+pub fn validate_metadata_key(key: &str) -> Result<(), String> {
+    if key.is_empty() {
+        return Err("Metadata key cannot be empty".to_string());
+    }
+    if key.len() > MAX_METADATA_KEY_LEN {
+        return Err(format!(
+            "Metadata key '{key}' exceeds maximum length of {MAX_METADATA_KEY_LEN} characters"
+        ));
+    }
+
+    let mut chars = key.chars();
+    let first = chars.next().unwrap(); // safe: checked non-empty above
+    if !first.is_ascii_lowercase() && !first.is_ascii_digit() {
+        return Err(format!(
+            "Metadata key '{key}' must start with a lowercase letter or digit"
+        ));
+    }
+    for c in chars {
+        if !c.is_ascii_lowercase() && !c.is_ascii_digit() && c != '_' && c != '-' {
+            return Err(format!(
+                "Metadata key '{key}' contains invalid character '{c}': \
+                 only lowercase letters, digits, underscores, and hyphens are allowed"
             ));
         }
     }
@@ -260,5 +299,63 @@ mod tests {
         assert!(validate_secret_name("MY.SECRET").is_err());
         assert!(validate_secret_name("MY SECRET").is_err());
         assert!(validate_secret_name("MY@SECRET").is_err());
+    }
+
+    // --- Metadata key validation ---
+
+    #[test]
+    fn valid_metadata_keys() {
+        let valid = &[
+            "description",
+            "owner",
+            "rotate-by",
+            "source",
+            "my_key",
+            "a",
+            "1key",
+        ];
+        for key in valid {
+            assert!(
+                validate_metadata_key(key).is_ok(),
+                "expected '{key}' to be valid"
+            );
+        }
+    }
+
+    #[test]
+    fn metadata_key_empty() {
+        assert!(validate_metadata_key("").is_err());
+    }
+
+    #[test]
+    fn metadata_key_too_long() {
+        let long = "a".repeat(MAX_METADATA_KEY_LEN + 1);
+        assert!(validate_metadata_key(&long).is_err());
+
+        let at_limit = "a".repeat(MAX_METADATA_KEY_LEN);
+        assert!(validate_metadata_key(&at_limit).is_ok());
+    }
+
+    #[test]
+    fn metadata_key_uppercase() {
+        assert!(validate_metadata_key("Owner").is_err());
+        assert!(validate_metadata_key("OWNER").is_err());
+    }
+
+    #[test]
+    fn metadata_key_special_chars() {
+        assert!(validate_metadata_key("my.key").is_err());
+        assert!(validate_metadata_key("my key").is_err());
+        assert!(validate_metadata_key("my@key").is_err());
+    }
+
+    #[test]
+    fn metadata_key_leading_hyphen() {
+        assert!(validate_metadata_key("-key").is_err());
+    }
+
+    #[test]
+    fn metadata_key_leading_underscore() {
+        assert!(validate_metadata_key("_key").is_err());
     }
 }
