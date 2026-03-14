@@ -42,8 +42,8 @@ impl GcpBackend {
     fn zuul_labels(environment: &str, name: &str) -> HashMap<String, String> {
         HashMap::from([
             ("zuul-managed".to_string(), "true".to_string()),
-            ("zuul-env".to_string(), environment.to_string()),
-            ("zuul-name".to_string(), name.to_string()),
+            ("zuul-env".to_string(), environment.to_lowercase()),
+            ("zuul-name".to_string(), name.to_lowercase()),
         ])
     }
 
@@ -641,7 +641,7 @@ mod tests {
         let labels = GcpBackend::zuul_labels("staging", "SECRET_KEY");
         assert_eq!(labels.get("zuul-managed").unwrap(), "true");
         assert_eq!(labels.get("zuul-env").unwrap(), "staging");
-        assert_eq!(labels.get("zuul-name").unwrap(), "SECRET_KEY");
+        assert_eq!(labels.get("zuul-name").unwrap(), "secret_key");
         assert_eq!(labels.len(), 3);
     }
 
