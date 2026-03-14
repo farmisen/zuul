@@ -1,10 +1,12 @@
 use comfy_table::{ContentArrangement, Table};
-use dialoguer::{Confirm, Input};
+use dialoguer::Confirm;
+use dialoguer::Input;
 
 use crate::backend::Backend;
 use crate::backend::gcp_backend::GcpBackend;
 use crate::cli::OutputFormat;
 use crate::error::ZuulError;
+use crate::progress::{self, ProgressOpts};
 
 /// Run `zuul env list`.
 pub async fn list(backend: &GcpBackend, format: &OutputFormat) -> Result<(), ZuulError> {
@@ -260,6 +262,122 @@ pub async fn delete(
         OutputFormat::Json => {
             let value = serde_json::json!({
                 "deleted": true,
+                "environment": name,
+                "secrets_deleted": secrets.len(),
+            });
+            let json = serde_json::to_string_pretty(&value)
+                .map_err(|e| ZuulError::Backend(format!("Failed to serialize: {e}")))?;
+            println!("{json}");
+        }
+    }
+
+    Ok(())
+}
+
+/// Run `zuul env clear`.
+///
+/// Deletes all secrets in an environment but keeps the environment itself.
+pub async fn clear(
+    backend: &GcpBackend,
+    name: &str,
+    force: bool,
+    dry_run: bool,
+    format: &OutputFormat,
+    progress: ProgressOpts,
+) -> Result<(), ZuulError> {
+    // Verify environment exists.
+    backend.get_environment(name).await?;
+
+    let sp = progress::spinner("Fetching secrets...", progress);
+    let secrets = backend.list_secrets(Some(name)).await?;
+    sp.finish_and_clear();
+
+    if secrets.is_empty() {
+        match format {
+            OutputFormat::Text => println!("No secrets found in environment '{name}'."),
+            OutputFormat::Json => {
+                let value = serde_json::json!({
+                    "environment": name,
+                    "secrets_deleted": 0,
+                    "dry_run": dry_run,
+                });
+                let json = serde_json::to_string_pretty(&value)
+                    .map_err(|e| ZuulError::Backend(format!("Failed to serialize: {e}")))?;
+                println!("{json}");
+            }
+        }
+        return Ok(());
+    }
+
+    // Show what will be cleared.
+    match format {
+        OutputFormat::Text => {
+            if dry_run {
+                print!("Dry run: the following");
+            } else {
+                print!("The following");
+            }
+            println!(" secrets would be deleted from environment '{name}':\n");
+            for secret in &secrets {
+                println!("  - {}", secret.name);
+            }
+
+            if dry_run {
+                println!("\nNo changes were made. Remove --dry-run to execute.");
+                return Ok(());
+            }
+        }
+        OutputFormat::Json => {
+            let secret_names: Vec<&str> = secrets.iter().map(|s| s.name.as_str()).collect();
+            let value = serde_json::json!({
+                "environment": name,
+                "secrets": secret_names,
+                "dry_run": dry_run,
+            });
+            if dry_run {
+                let json = serde_json::to_string_pretty(&value)
+                    .map_err(|e| ZuulError::Backend(format!("Failed to serialize: {e}")))?;
+                println!("{json}");
+                return Ok(());
+            }
+        }
+    }
+
+    if !force {
+        println!();
+        let confirmed = Confirm::new()
+            .with_prompt(format!(
+                "Delete all {} secret(s) from environment '{name}'?",
+                secrets.len()
+            ))
+            .default(false)
+            .interact()
+            .map_err(|e| ZuulError::Config(format!("Failed to read input: {e}")))?;
+
+        if !confirmed {
+            println!("Cancelled.");
+            return Ok(());
+        }
+    }
+
+    let pb = progress::progress_bar(secrets.len() as u64, progress);
+    for secret in &secrets {
+        pb.set_message(format!("Deleting '{}'...", secret.name));
+        backend.delete_secret(&secret.name, name).await?;
+        pb.inc(1);
+    }
+    pb.finish_and_clear();
+
+    match format {
+        OutputFormat::Text => {
+            println!(
+                "Cleared {} secret(s) from environment '{name}'.",
+                secrets.len()
+            );
+        }
+        OutputFormat::Json => {
+            let value = serde_json::json!({
+                "cleared": true,
                 "environment": name,
                 "secrets_deleted": secrets.len(),
             });

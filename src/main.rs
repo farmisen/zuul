@@ -98,6 +98,13 @@ async fn run(cli: Cli) -> Result<(), ZuulError> {
                 EnvCommand::Delete { name, dry_run } => {
                     env::delete(&backend, name, *dry_run, &cli.format).await?;
                 }
+                EnvCommand::Clear {
+                    name,
+                    force,
+                    dry_run,
+                } => {
+                    env::clear(&backend, name, *force, *dry_run, &cli.format, progress).await?;
+                }
             }
         }
         Command::Secret { ref command } => {

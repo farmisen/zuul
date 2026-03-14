@@ -176,6 +176,20 @@ pub enum EnvCommand {
         #[arg(long)]
         dry_run: bool,
     },
+
+    /// Clear all secrets from an environment (keeps the environment itself)
+    Clear {
+        /// Environment name
+        name: String,
+
+        /// Skip confirmation prompt
+        #[arg(long)]
+        force: bool,
+
+        /// Preview what would be cleared without making changes
+        #[arg(long)]
+        dry_run: bool,
+    },
 }
 
 #[derive(Debug, Subcommand)]
