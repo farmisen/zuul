@@ -38,7 +38,16 @@ pub async fn list(backend: &GcpBackend, format: &OutputFormat) -> Result<(), Zuu
             println!("{table}");
         }
         OutputFormat::Json => {
-            let json = serde_json::to_string_pretty(&envs)
+            let mut entries = Vec::new();
+            for env in &envs {
+                let count = backend.list_secrets(Some(&env.name)).await?.len();
+                entries.push(serde_json::json!({
+                    "name": env.name,
+                    "description": env.description,
+                    "secrets": count,
+                }));
+            }
+            let json = serde_json::to_string_pretty(&entries)
                 .map_err(|e| ZuulError::Backend(format!("Failed to serialize: {e}")))?;
             println!("{json}");
         }
