@@ -8,6 +8,7 @@ use crate::backend::Backend;
 use crate::backend::gcp_backend::GcpBackend;
 use crate::cli::OutputFormat;
 use crate::error::ZuulError;
+use crate::progress::{self, ProgressOpts};
 
 /// Resolve the target environment from config, returning an error if not set.
 pub fn require_env(env: Option<&str>) -> Result<&str, ZuulError> {
@@ -24,8 +25,11 @@ pub async fn list(
     backend: &GcpBackend,
     env: Option<&str>,
     format: &OutputFormat,
+    progress: ProgressOpts,
 ) -> Result<(), ZuulError> {
+    let sp = progress::spinner("Fetching secrets...", progress);
     let secrets = backend.list_secrets(env).await?;
+    sp.finish_and_clear();
 
     if secrets.is_empty() {
         match format {
@@ -43,13 +47,17 @@ pub async fn list(
             if let Some(environment) = env {
                 // Per-environment mode: show NAME + UPDATED
                 table.set_header(vec!["NAME", "UPDATED"]);
+                let pb = progress::progress_bar(secrets.len() as u64, progress);
                 for secret in &secrets {
+                    pb.set_message(secret.name.clone());
                     let updated = match backend.get_secret(&secret.name, environment).await {
                         Ok(sv) => sv.updated_at.format("%Y-%m-%d %H:%M").to_string(),
                         Err(_) => "(unknown)".to_string(),
                     };
                     table.add_row(vec![secret.name.clone(), updated]);
+                    pb.inc(1);
                 }
+                pb.finish_and_clear();
             } else {
                 // Cross-environment mode: show NAME + ENVIRONMENTS
                 table.set_header(vec!["NAME", "ENVIRONMENTS"]);
@@ -71,9 +79,16 @@ pub async fn list(
 }
 
 /// Run `zuul secret get`.
-pub async fn get(backend: &GcpBackend, name: &str, env: Option<&str>) -> Result<(), ZuulError> {
+pub async fn get(
+    backend: &GcpBackend,
+    name: &str,
+    env: Option<&str>,
+    progress: ProgressOpts,
+) -> Result<(), ZuulError> {
     let environment = require_env(env)?;
+    let sp = progress::spinner("Fetching secret...", progress);
     let secret = backend.get_secret(name, environment).await?;
+    sp.finish_and_clear();
     print!("{}", secret.value);
     Ok(())
 }
@@ -86,7 +101,7 @@ pub async fn set(
     value: Option<&str>,
     from_file: Option<&Path>,
     from_stdin: bool,
-    quiet: bool,
+    progress: ProgressOpts,
 ) -> Result<(), ZuulError> {
     let environment = require_env(env)?;
 
@@ -109,11 +124,13 @@ pub async fn set(
             .map_err(|e| ZuulError::Config(format!("Failed to read input: {e}")))?
     };
 
+    let sp = progress::spinner(&format!("Setting secret '{name}'..."), progress);
     backend
         .set_secret(name, environment, &resolved_value)
         .await?;
+    sp.finish_and_clear();
 
-    if !quiet {
+    if !progress.quiet {
         println!("Set secret '{name}' in environment '{environment}'.");
     }
 
@@ -128,6 +145,7 @@ pub async fn delete(
     force: bool,
     dry_run: bool,
     format: &OutputFormat,
+    progress: ProgressOpts,
 ) -> Result<(), ZuulError> {
     let environment = require_env(env)?;
 
@@ -172,7 +190,9 @@ pub async fn delete(
         }
     }
 
+    let sp = progress::spinner(&format!("Deleting secret '{name}'..."), progress);
     backend.delete_secret(name, environment).await?;
+    sp.finish_and_clear();
 
     match format {
         OutputFormat::Text => println!("Deleted secret '{name}' from environment '{environment}'."),
@@ -197,9 +217,12 @@ pub async fn info(
     name: &str,
     env: Option<&str>,
     format: &OutputFormat,
+    progress: ProgressOpts,
 ) -> Result<(), ZuulError> {
     // List all secrets to find which environments have this secret.
+    let sp = progress::spinner("Fetching secret info...", progress);
     let all_secrets = backend.list_secrets(None).await?;
+    sp.finish_and_clear();
     let entry = all_secrets
         .iter()
         .find(|s| s.name == name)
@@ -267,8 +290,9 @@ pub async fn copy(
     from: &str,
     to: &str,
     force: bool,
-    quiet: bool,
+    progress: ProgressOpts,
 ) -> Result<(), ZuulError> {
+    let sp = progress::spinner(&format!("Copying secret '{name}'..."), progress);
     let source = backend.get_secret(name, from).await?;
 
     // Check if the secret already exists in the target environment.
@@ -290,8 +314,9 @@ pub async fn copy(
     }
 
     backend.set_secret(name, to, &source.value).await?;
+    sp.finish_and_clear();
 
-    if !quiet {
+    if !progress.quiet {
         println!("Copied secret '{name}' from '{from}' to '{to}'.");
     }
 

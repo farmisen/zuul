@@ -5,6 +5,7 @@ use crate::backend::Backend;
 use crate::backend::gcp_backend::GcpBackend;
 use crate::config::Config;
 use crate::error::ZuulError;
+use crate::progress::{self, ProgressOpts};
 
 /// Run `zuul run`.
 ///
@@ -17,9 +18,12 @@ pub async fn run(
     env: &str,
     no_local: bool,
     command: &[String],
+    progress: ProgressOpts,
 ) -> Result<i32, ZuulError> {
     // Fetch all secrets for the environment
+    let sp = progress::spinner("Fetching secrets...", progress);
     let backend_secrets = backend.list_secrets_for_environment(env).await?;
+    sp.finish_and_clear();
 
     // Build name→value map from backend results
     let mut secrets: HashMap<String, String> = backend_secrets

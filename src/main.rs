@@ -11,6 +11,7 @@ use zuul::cli::{
 };
 use zuul::config::{CliOverrides, Config, load_config};
 use zuul::error::ZuulError;
+use zuul::progress::ProgressOpts;
 
 #[tokio::main]
 async fn main() {
@@ -55,6 +56,11 @@ async fn create_backend(config: &Config) -> Result<GcpBackend, ZuulError> {
 }
 
 async fn run(cli: Cli) -> Result<(), ZuulError> {
+    let progress = ProgressOpts {
+        quiet: cli.quiet,
+        non_interactive: cli.non_interactive,
+    };
+
     match cli.command {
         Command::Init { project, backend } => {
             let cwd = get_cwd()?;
@@ -100,10 +106,10 @@ async fn run(cli: Cli) -> Result<(), ZuulError> {
             let env = config.default_environment.as_deref();
             match command {
                 SecretCommand::List => {
-                    secret::list(&backend, env, &cli.format).await?;
+                    secret::list(&backend, env, &cli.format, progress).await?;
                 }
                 SecretCommand::Get { name } => {
-                    secret::get(&backend, name, env).await?;
+                    secret::get(&backend, name, env, progress).await?;
                 }
                 SecretCommand::Set {
                     name,
@@ -118,7 +124,7 @@ async fn run(cli: Cli) -> Result<(), ZuulError> {
                         value.as_deref(),
                         from_file.as_deref(),
                         *from_stdin,
-                        cli.quiet,
+                        progress,
                     )
                     .await?;
                 }
@@ -127,10 +133,11 @@ async fn run(cli: Cli) -> Result<(), ZuulError> {
                     force,
                     dry_run,
                 } => {
-                    secret::delete(&backend, name, env, *force, *dry_run, &cli.format).await?;
+                    secret::delete(&backend, name, env, *force, *dry_run, &cli.format, progress)
+                        .await?;
                 }
                 SecretCommand::Info { name } => {
-                    secret::info(&backend, name, env, &cli.format).await?;
+                    secret::info(&backend, name, env, &cli.format, progress).await?;
                 }
                 SecretCommand::Copy {
                     name,
@@ -138,7 +145,7 @@ async fn run(cli: Cli) -> Result<(), ZuulError> {
                     to,
                     force,
                 } => {
-                    secret::copy(&backend, name, from, to, *force, cli.quiet).await?;
+                    secret::copy(&backend, name, from, to, *force, progress).await?;
                 }
                 SecretCommand::Metadata { command: meta_cmd } => match meta_cmd {
                     MetadataCommand::List { name } => {
@@ -168,6 +175,7 @@ async fn run(cli: Cli) -> Result<(), ZuulError> {
                 export_format,
                 output.as_deref(),
                 no_local,
+                progress,
             )
             .await?;
         }
@@ -178,7 +186,7 @@ async fn run(cli: Cli) -> Result<(), ZuulError> {
             let config = resolve_config(&cli)?;
             let backend = create_backend(&config).await?;
             let env = secret::require_env(config.default_environment.as_deref())?;
-            let exit_code = run::run(&backend, &config, env, no_local, command).await?;
+            let exit_code = run::run(&backend, &config, env, no_local, command, progress).await?;
             process::exit(exit_code);
         }
         Command::Import {
@@ -197,6 +205,7 @@ async fn run(cli: Cli) -> Result<(), ZuulError> {
                 import_format.as_ref(),
                 overwrite,
                 dry_run,
+                progress,
             )
             .await?;
         }

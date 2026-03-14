@@ -6,6 +6,7 @@ use crate::backend::Backend;
 use crate::backend::gcp_backend::GcpBackend;
 use crate::cli::ImportFormat;
 use crate::error::ZuulError;
+use crate::progress::{self, ProgressOpts};
 
 /// Run `zuul import`.
 ///
@@ -18,6 +19,7 @@ pub async fn run(
     format: Option<&ImportFormat>,
     overwrite: bool,
     dry_run: bool,
+    progress: ProgressOpts,
 ) -> Result<(), ZuulError> {
     // Resolve format: explicit flag or auto-detect from extension
     let resolved_format = match format {
@@ -37,17 +39,20 @@ pub async fn run(
     }
 
     // Fetch existing secrets for this environment to detect collisions
+    let sp = progress::spinner("Checking existing secrets...", progress);
     let existing: HashMap<String, ()> = backend
         .list_secrets(Some(env))
         .await?
         .into_iter()
         .map(|entry| (entry.name, ()))
         .collect();
+    sp.finish_and_clear();
 
     let mut created = 0u32;
     let mut overwritten = 0u32;
     let mut skipped = 0u32;
 
+    let pb = progress::progress_bar(secrets.len() as u64, progress);
     for (name, value) in &secrets {
         let exists = existing.contains_key(name);
 
@@ -56,6 +61,7 @@ pub async fn run(
             eprintln!(
                 "Warning: secret '{name}' already exists, skipping (use --overwrite to replace)"
             );
+            pb.inc(1);
             continue;
         }
 
@@ -68,6 +74,7 @@ pub async fn run(
                 created += 1;
             }
         } else {
+            pb.set_message(name.clone());
             backend.set_secret(name, env, value).await?;
             if exists {
                 overwritten += 1;
@@ -75,7 +82,9 @@ pub async fn run(
                 created += 1;
             }
         }
+        pb.inc(1);
     }
+    pb.finish_and_clear();
 
     // Summary
     let total = created + overwritten;

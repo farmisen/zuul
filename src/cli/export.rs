@@ -8,6 +8,7 @@ use crate::cli::ExportFormat;
 use crate::config::Config;
 use crate::error::ZuulError;
 use crate::export;
+use crate::progress::{self, ProgressOpts};
 
 /// Run `zuul export`.
 ///
@@ -21,9 +22,12 @@ pub async fn run(
     format: &ExportFormat,
     output: Option<&Path>,
     no_local: bool,
+    progress: ProgressOpts,
 ) -> Result<(), ZuulError> {
     // Fetch all secrets for the environment
+    let sp = progress::spinner("Fetching secrets...", progress);
     let backend_secrets = backend.list_secrets_for_environment(env).await?;
+    sp.finish_and_clear();
 
     // Build name→value map from backend results
     let mut secrets: HashMap<String, String> = backend_secrets

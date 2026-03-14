@@ -39,6 +39,10 @@ pub struct Cli {
     #[arg(short, long, global = true)]
     pub verbose: bool,
 
+    /// Disable interactive prompts and progress indicators
+    #[arg(long, global = true)]
+    pub non_interactive: bool,
+
     #[command(subcommand)]
     pub command: Command,
 }
