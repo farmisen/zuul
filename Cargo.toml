@@ -14,14 +14,14 @@ clap = { version = "4", features = ["derive"] }
 comfy-table = "7.2.2"
 crc32c = "0.6.8"
 dialoguer = "0.12.0"
-gcloud-sdk = { version = "0.28", features = ["google-cloud-secretmanager-v1"] }
+gcloud-sdk = { version = "0.29", features = ["google-cloud-secretmanager-v1"] }
 rustls = { version = "0.23", features = ["ring"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_yaml = "0.9"
 thiserror = "2"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
-toml = "0.8"
+toml = "1"
 
 [dev-dependencies]
 serial_test = "3"
