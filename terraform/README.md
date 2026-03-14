@@ -5,6 +5,7 @@ Provisions the GCP infrastructure required by [Zuul](../README.md) — a CLI too
 ## What This Module Does
 
 - Enables the Secret Manager API on your GCP project
+- Creates the zuul environment registry with your configured environments
 - Grants `secretmanager.admin` to designated admin users
 - Creates scoped read-only IAM bindings per zuul environment
 - Grants all accessors read access to the zuul environment registry
@@ -71,6 +72,12 @@ module "zuul" {
   environments = ["production", "staging", "dev"]
   admin_emails = ["ops@company.com", "lead@company.com"]
 
+  environment_descriptions = {
+    production = "Live production environment"
+    staging    = "Pre-production staging"
+    dev        = "Local development"
+  }
+
   environment_accessors = {
     dev     = ["user:alice@company.com", "user:bob@company.com"]
     staging = ["user:alice@company.com"]
@@ -93,6 +100,7 @@ output "sa_emails" {
 |------|------|----------|---------|-------------|
 | `project_id` | `string` | Yes | — | GCP project ID |
 | `environments` | `list(string)` | No | `["production", "staging", "dev"]` | Zuul environment names |
+| `environment_descriptions` | `map(string)` | No | `{}` | Optional descriptions for environments |
 | `admin_emails` | `list(string)` | Yes | — | Emails granted `secretmanager.admin` |
 | `environment_accessors` | `map(list(string))` | No | `{}` | Map of environment to IAM members with read-only access |
 | `service_accounts` | `map(string)` | No | `{}` | Map of SA name to environment (creates scoped SAs) |
@@ -103,6 +111,8 @@ output "sa_emails" {
 |------|-------------|
 | `project_id` | GCP project ID |
 | `secret_manager_api_enabled` | The Secret Manager API service name |
+| `registry_secret_id` | GCP secret ID of the zuul environment registry |
+| `environments` | List of zuul environments provisioned in the registry |
 | `service_account_emails` | Map of SA name to email for each created service account |
 
 ## IAM Model
@@ -124,3 +134,7 @@ This module uses `google_project_iam_member` (additive) for all bindings — it 
 3. Run `terraform plan` to review changes
 4. Run `terraform apply`
 5. Initialize zuul: `zuul init --project <your-project-id>`
+
+Environments are created in the registry by `terraform apply` — no need to run `zuul env create` separately.
+
+> **Note:** The registry secret version uses `ignore_changes` on `secret_data`, so subsequent `zuul env create` or `zuul env delete` commands won't be overwritten by Terraform. The initial `terraform apply` seeds the registry; Zuul manages it from there.

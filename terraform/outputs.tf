@@ -8,6 +8,16 @@ output "secret_manager_api_enabled" {
   value       = google_project_service.secret_manager.service
 }
 
+output "registry_secret_id" {
+  description = "The GCP secret ID of the zuul environment registry."
+  value       = google_secret_manager_secret.registry.secret_id
+}
+
+output "environments" {
+  description = "List of zuul environments provisioned in the registry."
+  value       = var.environments
+}
+
 output "service_account_emails" {
   description = "Map of service account name to email address for each created zuul service account."
   value = {

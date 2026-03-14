@@ -20,17 +20,19 @@ A CLI tool for managing secrets across multiple environments, backed by Google C
 # Build from source
 cargo install --path .
 
-# Initialize a project
+# Provision infrastructure (creates environments, IAM, etc.)
+cd terraform
+cp terraform.tfvars.example terraform.tfvars  # edit with your values
+terraform init && terraform apply
+cd ..
+
+# Initialize the local project config
 zuul init --project my-gcp-project-123
 
 # Set up authentication
 zuul auth
 
-# Create environments
-zuul env create dev --description "Local development"
-zuul env create production --description "Live production"
-
-# Manage secrets
+# Manage secrets (environments are already created by Terraform)
 zuul secret set DATABASE_URL --env dev "postgres://localhost:5432/mydb"
 zuul secret get DATABASE_URL --env dev
 
@@ -82,14 +84,7 @@ eval "$(zuul export --env dev --export-format direnv)"
 
 ## Infrastructure
 
-A Terraform module is included in [`terraform/`](terraform/) to provision the GCP backend:
-
-```bash
-cd terraform
-cp terraform.tfvars.example terraform.tfvars  # edit with your values
-terraform init
-terraform apply
-```
+A Terraform module is included in [`terraform/`](terraform/) to provision the GCP backend — it enables the Secret Manager API, creates the zuul environment registry, and sets up IAM bindings.
 
 See [`terraform/README.md`](terraform/README.md) for details on IAM bindings, per-environment access scoping, and service account creation.
 

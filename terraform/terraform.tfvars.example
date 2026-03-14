@@ -4,6 +4,13 @@ project_id = "my-gcp-project-123"
 # Zuul environment names (optional, defaults to ["production", "staging", "dev"])
 environments = ["production", "staging", "dev"]
 
+# Optional descriptions for environments
+environment_descriptions = {
+  production = "Live production environment"
+  staging    = "Pre-production staging"
+  dev        = "Local development"
+}
+
 # Users who get full secretmanager.admin access (required)
 admin_emails = [
   "ops@company.com",

@@ -24,6 +24,12 @@ variable "environments" {
   }
 }
 
+variable "environment_descriptions" {
+  description = "Optional map of environment name to description. Environments not in this map will have no description."
+  type        = map(string)
+  default     = {}
+}
+
 variable "admin_emails" {
   description = "Email addresses of users or service accounts that should receive secretmanager.admin role."
   type        = list(string)
