@@ -110,15 +110,18 @@ fn parse(format: &ImportFormat, content: &str) -> Result<Vec<(String, String)>, 
 /// Parse dotenv format.
 ///
 /// Handles `KEY=VALUE`, quoted values (`"..."`, `'...'`), comments (`#`),
-/// blank lines, and optional `export` prefix.
+/// blank lines, optional `export` prefix, and multiline quoted values.
 fn parse_dotenv(content: &str) -> Result<Vec<(String, String)>, ZuulError> {
     let mut secrets = Vec::new();
+    let lines: Vec<&str> = content.lines().collect();
+    let mut i = 0;
 
-    for (line_num, raw_line) in content.lines().enumerate() {
-        let line = raw_line.trim();
+    while i < lines.len() {
+        let line = lines[i].trim();
 
         // Skip blank lines and comments
         if line.is_empty() || line.starts_with('#') {
+            i += 1;
             continue;
         }
 
@@ -129,25 +132,59 @@ fn parse_dotenv(content: &str) -> Result<Vec<(String, String)>, ZuulError> {
         let Some(eq_pos) = line.find('=') else {
             return Err(ZuulError::Validation(format!(
                 "Line {}: invalid format, expected KEY=VALUE",
-                line_num + 1
+                i + 1
             )));
         };
 
         let key = line[..eq_pos].trim().to_string();
-        let raw_value = line[eq_pos + 1..].trim();
+        let raw_value = &line[eq_pos + 1..];
+        let trimmed = raw_value.trim();
 
         if key.is_empty() {
-            return Err(ZuulError::Validation(format!(
-                "Line {}: empty key",
-                line_num + 1
-            )));
+            return Err(ZuulError::Validation(format!("Line {}: empty key", i + 1)));
         }
 
-        let value = unquote(raw_value);
-        secrets.push((key, value));
+        // Check for multiline quoted value: starts with quote but doesn't close on this line
+        let quote_char = trimmed.chars().next();
+        if matches!(quote_char, Some('"') | Some('\''))
+            && !is_closed_quote(trimmed, quote_char.unwrap())
+        {
+            let q = quote_char.unwrap();
+            let start_line = i;
+            let mut parts = vec![raw_value];
+            i += 1;
+            while i < lines.len() {
+                parts.push(lines[i]);
+                if lines[i].ends_with(q) {
+                    break;
+                }
+                i += 1;
+            }
+            if i >= lines.len() {
+                return Err(ZuulError::Validation(format!(
+                    "Line {}: unterminated quoted value",
+                    start_line + 1
+                )));
+            }
+            let joined = parts.join("\n");
+            let value = unquote(joined.trim());
+            secrets.push((key, value));
+        } else {
+            let value = unquote(trimmed);
+            secrets.push((key, value));
+        }
+
+        i += 1;
     }
 
     Ok(secrets)
+}
+
+/// Check whether a trimmed value that starts with `q` also closes with `q`.
+///
+/// A value like `"hello"` is closed; `"hello` is not; `""` is closed (empty quoted).
+fn is_closed_quote(s: &str, q: char) -> bool {
+    s.len() >= 2 && s.ends_with(q)
 }
 
 /// Remove surrounding quotes and unescape common escape sequences.
@@ -329,6 +366,50 @@ mod tests {
         let input = "KEY=a=b=c";
         let result = parse_dotenv(input).unwrap();
         assert_eq!(result, vec![("KEY".to_string(), "a=b=c".to_string())]);
+    }
+
+    #[test]
+    fn dotenv_multiline_single_quoted() {
+        let input = "CONFIG='{\n  \"key\": \"value\"\n}'";
+        let result = parse_dotenv(input).unwrap();
+        assert_eq!(
+            result,
+            vec![(
+                "CONFIG".to_string(),
+                "{\n  \"key\": \"value\"\n}".to_string()
+            )]
+        );
+    }
+
+    #[test]
+    fn dotenv_multiline_double_quoted() {
+        let input = "CONFIG=\"line1\nline2\nline3\"";
+        let result = parse_dotenv(input).unwrap();
+        assert_eq!(
+            result,
+            vec![("CONFIG".to_string(), "line1\nline2\nline3".to_string())]
+        );
+    }
+
+    #[test]
+    fn dotenv_multiline_with_other_keys() {
+        let input = "A=1\nJSON='{\n  \"x\": 1\n}'\nB=2";
+        let result = parse_dotenv(input).unwrap();
+        assert_eq!(
+            result,
+            vec![
+                ("A".to_string(), "1".to_string()),
+                ("JSON".to_string(), "{\n  \"x\": 1\n}".to_string()),
+                ("B".to_string(), "2".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn dotenv_multiline_unterminated() {
+        let input = "KEY='unclosed\nvalue";
+        let result = parse_dotenv(input);
+        assert!(result.is_err());
     }
 
     // --- JSON parser ---
