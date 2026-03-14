@@ -38,6 +38,17 @@ impl GcpBackend {
         format!("zuul__{environment}__{name}")
     }
 
+    /// Parse a GCP secret resource name or ID into `(env, name)`.
+    ///
+    /// Handles both full resource names (`projects/p/secrets/zuul__env__NAME`)
+    /// and bare IDs (`zuul__env__NAME`). Returns `None` for non-zuul secrets
+    /// or the registry secret.
+    fn parse_secret_id(resource_name: &str) -> Option<(&str, &str)> {
+        let secret_id = resource_name.rsplit('/').next().unwrap_or(resource_name);
+        let rest = secret_id.strip_prefix("zuul__")?;
+        rest.split_once("__")
+    }
+
     /// Build the standard labels for a zuul-managed secret.
     fn zuul_labels(environment: &str, name: &str) -> HashMap<String, String> {
         HashMap::from([
@@ -271,12 +282,15 @@ impl Backend for GcpBackend {
         let secrets = self.client.list_secrets(&filter).await?;
 
         // Group by secret name, collecting environments.
+        // Extract name and env from the secret ID (zuul__{env}__{name}) rather than
+        // labels, since labels are lowercased to satisfy GCP constraints.
         let mut entries: HashMap<String, Vec<String>> = HashMap::new();
         for secret in &secrets {
-            let name = secret.labels.get("zuul-name").cloned().unwrap_or_default();
-            let env = secret.labels.get("zuul-env").cloned().unwrap_or_default();
-            if !name.is_empty() {
-                entries.entry(name).or_default().push(env);
+            if let Some((env, name)) = Self::parse_secret_id(&secret.name) {
+                entries
+                    .entry(name.to_string())
+                    .or_default()
+                    .push(env.to_string());
             }
         }
 
@@ -633,6 +647,35 @@ mod tests {
         assert_eq!(
             GcpBackend::secret_id("dev", "API_KEY"),
             "zuul__dev__API_KEY"
+        );
+    }
+
+    #[test]
+    fn parse_secret_id_full_resource_name() {
+        assert_eq!(
+            GcpBackend::parse_secret_id("projects/my-proj/secrets/zuul__production__DATABASE_URL"),
+            Some(("production", "DATABASE_URL"))
+        );
+    }
+
+    #[test]
+    fn parse_secret_id_bare_id() {
+        assert_eq!(
+            GcpBackend::parse_secret_id("zuul__dev__API_KEY"),
+            Some(("dev", "API_KEY"))
+        );
+    }
+
+    #[test]
+    fn parse_secret_id_registry() {
+        assert_eq!(GcpBackend::parse_secret_id("zuul__registry"), None);
+    }
+
+    #[test]
+    fn parse_secret_id_non_zuul() {
+        assert_eq!(
+            GcpBackend::parse_secret_id("projects/p/secrets/other-secret"),
+            None
         );
     }
 
