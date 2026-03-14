@@ -41,10 +41,10 @@ pub async fn run(
 
     // Merge secrets into child env (secrets win on collision, warn on stderr)
     for (key, value) in &secrets {
-        if let Some(existing) = child_env.get(key) {
-            if existing != value {
-                eprintln!("Warning: secret '{key}' overrides existing environment variable");
-            }
+        if let Some(existing) = child_env.get(key)
+            && existing != value
+        {
+            eprintln!("Warning: secret '{key}' overrides existing environment variable");
         }
         child_env.insert(key.clone(), value.clone());
     }
