@@ -43,27 +43,10 @@ pub async fn list(
         OutputFormat::Text => {
             let mut table = Table::new();
             table.set_content_arrangement(ContentArrangement::Dynamic);
+            table.set_header(vec!["NAME", "ENVIRONMENTS"]);
 
-            if let Some(environment) = env {
-                // Per-environment mode: show NAME + UPDATED
-                table.set_header(vec!["NAME", "UPDATED"]);
-                let pb = progress::progress_bar(secrets.len() as u64, progress);
-                for secret in &secrets {
-                    pb.set_message(secret.name.clone());
-                    let updated = match backend.get_secret(&secret.name, environment).await {
-                        Ok(sv) => sv.updated_at.format("%Y-%m-%d %H:%M").to_string(),
-                        Err(_) => "(unknown)".to_string(),
-                    };
-                    table.add_row(vec![secret.name.clone(), updated]);
-                    pb.inc(1);
-                }
-                pb.finish_and_clear();
-            } else {
-                // Cross-environment mode: show NAME + ENVIRONMENTS
-                table.set_header(vec!["NAME", "ENVIRONMENTS"]);
-                for secret in &secrets {
-                    table.add_row(vec![secret.name.clone(), secret.environments.join(", ")]);
-                }
+            for secret in &secrets {
+                table.add_row(vec![secret.name.clone(), secret.environments.join(", ")]);
             }
 
             println!("{table}");
