@@ -1,6 +1,7 @@
 use std::process;
 
 use clap::Parser;
+use rustls::crypto::ring::default_provider;
 
 use zuul::backend::gcp::GcpClient;
 use zuul::backend::gcp_backend::GcpBackend;
@@ -13,6 +14,10 @@ use zuul::error::ZuulError;
 
 #[tokio::main]
 async fn main() {
+    default_provider()
+        .install_default()
+        .expect("Failed to install rustls crypto provider");
+
     let cli = Cli::parse();
 
     let result = run(cli).await;
