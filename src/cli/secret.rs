@@ -1,4 +1,4 @@
-use std::io::Read;
+use std::io::{IsTerminal, Read};
 use std::path::Path;
 
 use comfy_table::{ContentArrangement, Table};
@@ -90,6 +90,9 @@ pub async fn get(
     let secret = backend.get_secret(name, environment).await?;
     sp.finish_and_clear();
     print!("{}", secret.value);
+    if std::io::stdout().is_terminal() {
+        println!();
+    }
     Ok(())
 }
 
