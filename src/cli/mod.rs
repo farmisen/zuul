@@ -189,6 +189,23 @@ pub enum EnvCommand {
         dry_run: bool,
     },
 
+    /// Copy all secrets from one environment to another
+    Copy {
+        /// Source environment
+        from: String,
+
+        /// Target environment
+        to: String,
+
+        /// Skip confirmation prompt
+        #[arg(long)]
+        force: bool,
+
+        /// Preview what would be copied without making changes
+        #[arg(long)]
+        dry_run: bool,
+    },
+
     /// Clear all secrets from an environment (keeps the environment itself)
     Clear {
         /// Environment name
