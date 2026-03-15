@@ -518,45 +518,18 @@ impl Backend for GcpBackend {
         &self,
         environment: &str,
     ) -> Result<Vec<(String, SecretValue)>, ZuulError> {
-        self.ensure_environment_exists(environment).await?;
-
-        let filter = format!("labels.zuul-managed=true AND labels.zuul-env={environment}");
-        let secrets = self.client.list_secrets(&filter).await?;
+        let entries = self.list_secrets(Some(environment)).await?;
 
         let mut results = Vec::new();
-        for secret in &secrets {
-            let name = match secret.labels.get("zuul-name") {
-                Some(n) => n.clone(),
-                None => continue,
-            };
-
-            let gcp_secret_id = match secret.name.rsplit('/').next() {
-                Some(id) => id,
-                None => continue,
-            };
-
-            let created_at = proto_timestamp_to_chrono(secret.create_time);
-
-            match self.client.access_secret_version(gcp_secret_id).await {
-                Ok((data, version_name)) => {
-                    let value = String::from_utf8(data).unwrap_or_default();
-                    results.push((
-                        name.clone(),
-                        SecretValue {
-                            name,
-                            environment: environment.to_string(),
-                            value,
-                            version: Self::extract_version(&version_name),
-                            created_at,
-                            updated_at: created_at,
-                        },
-                    ));
+        for entry in &entries {
+            match self.get_secret(&entry.name, environment).await {
+                Ok(secret_value) => {
+                    results.push((entry.name.clone(), secret_value));
                 }
                 Err(_) => continue,
             }
         }
 
-        results.sort_by(|a, b| a.0.cmp(&b.0));
         Ok(results)
     }
 }
