@@ -73,23 +73,28 @@ fn env_delete_dry_run() {
 
 #[test]
 fn secret_get() {
-    let cli = parse(&["--env", "prod", "secret", "get", "DB_URL"]);
-    assert_eq!(cli.env.as_deref(), Some("prod"));
+    let cli = parse(&["secret", "--env", "prod", "get", "DB_URL"]);
     match cli.command {
         Command::Secret {
+            env,
             command: SecretCommand::Get { name },
-        } => assert_eq!(name, "DB_URL"),
+        } => {
+            assert_eq!(env.as_deref(), Some("prod"));
+            assert_eq!(name, "DB_URL");
+        }
         _ => panic!("expected Secret Get"),
     }
 }
 
 #[test]
 fn secret_set_with_value() {
-    let cli = parse(&["secret", "set", "API_KEY", "secret123", "--env", "dev"]);
+    let cli = parse(&["secret", "--env", "dev", "set", "API_KEY", "secret123"]);
     match cli.command {
         Command::Secret {
+            env,
             command: SecretCommand::Set { name, value, .. },
         } => {
+            assert_eq!(env.as_deref(), Some("dev"));
             assert_eq!(name, "API_KEY");
             assert_eq!(value.as_deref(), Some("secret123"));
         }
@@ -105,6 +110,7 @@ fn secret_copy() {
     match cli.command {
         Command::Secret {
             command: SecretCommand::Copy { name, from, to, .. },
+            ..
         } => {
             assert_eq!(name, "DB_URL");
             assert_eq!(from, "dev");
@@ -118,7 +124,10 @@ fn secret_copy() {
 fn export_with_format() {
     let cli = parse(&["export", "--export-format", "dotenv", "--env", "dev"]);
     match cli.command {
-        Command::Export { export_format, .. } => {
+        Command::Export {
+            env, export_format, ..
+        } => {
+            assert_eq!(env.as_deref(), Some("dev"));
             assert!(matches!(export_format, ExportFormat::Dotenv));
         }
         _ => panic!("expected Export"),
@@ -129,7 +138,8 @@ fn export_with_format() {
 fn run_with_command() {
     let cli = parse(&["run", "--env", "prod", "--", "node", "server.js"]);
     match cli.command {
-        Command::Run { command, .. } => {
+        Command::Run { env, command, .. } => {
+            assert_eq!(env.as_deref(), Some("prod"));
             assert_eq!(command, vec!["node", "server.js"]);
         }
         _ => panic!("expected Run"),
@@ -164,17 +174,7 @@ fn import_with_options() {
 
 #[test]
 fn global_flags() {
-    let cli = parse(&[
-        "-e",
-        "staging",
-        "--project",
-        "my-proj",
-        "-q",
-        "-v",
-        "env",
-        "list",
-    ]);
-    assert_eq!(cli.env.as_deref(), Some("staging"));
+    let cli = parse(&["--project", "my-proj", "-q", "-v", "env", "list"]);
     assert_eq!(cli.project.as_deref(), Some("my-proj"));
     assert!(cli.quiet);
     assert!(cli.verbose);

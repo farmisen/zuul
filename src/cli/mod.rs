@@ -15,10 +15,6 @@ use clap::{Parser, Subcommand, ValueEnum};
 #[derive(Debug, Parser)]
 #[command(name = "zuul", version, about)]
 pub struct Cli {
-    /// Target environment (overrides default from config)
-    #[arg(short, long, global = true)]
-    pub env: Option<String>,
-
     /// Override GCP project ID
     #[arg(long, global = true)]
     pub project: Option<String>,
@@ -82,12 +78,20 @@ pub enum Command {
 
     /// Manage secrets
     Secret {
+        /// Target environment (overrides default from config)
+        #[arg(short, long)]
+        env: Option<String>,
+
         #[command(subcommand)]
         command: SecretCommand,
     },
 
     /// Export all secrets for an environment
     Export {
+        /// Target environment (overrides default from config)
+        #[arg(short, long)]
+        env: Option<String>,
+
         /// Export format
         #[arg(long = "export-format", value_enum)]
         export_format: ExportFormat,
@@ -103,6 +107,10 @@ pub enum Command {
 
     /// Inject secrets into a subprocess as environment variables
     Run {
+        /// Target environment (overrides default from config)
+        #[arg(short, long)]
+        env: Option<String>,
+
         /// Skip local overrides
         #[arg(long)]
         no_local: bool,
@@ -114,6 +122,10 @@ pub enum Command {
 
     /// Bulk-import secrets from a file into an environment
     Import {
+        /// Target environment (overrides default from config)
+        #[arg(short, long)]
+        env: Option<String>,
+
         /// Path to the file to import
         #[arg(long)]
         file: PathBuf,

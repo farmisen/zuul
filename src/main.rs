@@ -33,12 +33,12 @@ fn get_cwd() -> Result<std::path::PathBuf, ZuulError> {
         .map_err(|e| ZuulError::Config(format!("Failed to get current directory: {e}")))
 }
 
-fn resolve_config(cli: &Cli) -> Result<Config, ZuulError> {
+fn resolve_config(cli: &Cli, env: Option<&str>) -> Result<Config, ZuulError> {
     let cwd = get_cwd()?;
     load_config(
         &cwd,
         &CliOverrides {
-            environment: cli.env.clone(),
+            environment: env.map(String::from),
             project_id: cli.project.clone(),
             config_path: cli.config.clone(),
         },
@@ -67,11 +67,11 @@ async fn run(cli: Cli) -> Result<(), ZuulError> {
             init::run(&cwd, project, &backend)?;
         }
         Command::Auth { check } => {
-            let config = resolve_config(&cli)?;
+            let config = resolve_config(&cli, None)?;
             auth::run(&config, check).await?;
         }
         Command::Env { ref command } => {
-            let config = resolve_config(&cli)?;
+            let config = resolve_config(&cli, None)?;
             let backend = create_backend(&config).await?;
             match command {
                 EnvCommand::List => env::list(&backend, &cli.format).await?,
@@ -107,8 +107,11 @@ async fn run(cli: Cli) -> Result<(), ZuulError> {
                 }
             }
         }
-        Command::Secret { ref command } => {
-            let config = resolve_config(&cli)?;
+        Command::Secret {
+            ref env,
+            ref command,
+        } => {
+            let config = resolve_config(&cli, env.as_deref())?;
             let backend = create_backend(&config).await?;
             let env = config.default_environment.as_deref();
             match command {
@@ -168,11 +171,12 @@ async fn run(cli: Cli) -> Result<(), ZuulError> {
             }
         }
         Command::Export {
+            ref env,
             ref export_format,
             ref output,
             no_local,
         } => {
-            let config = resolve_config(&cli)?;
+            let config = resolve_config(&cli, env.as_deref())?;
             let backend = create_backend(&config).await?;
             let env = secret::require_env(config.default_environment.as_deref())?;
             export::run(
@@ -187,22 +191,24 @@ async fn run(cli: Cli) -> Result<(), ZuulError> {
             .await?;
         }
         Command::Run {
+            ref env,
             no_local,
             ref command,
         } => {
-            let config = resolve_config(&cli)?;
+            let config = resolve_config(&cli, env.as_deref())?;
             let backend = create_backend(&config).await?;
             let env = secret::require_env(config.default_environment.as_deref())?;
             let exit_code = run::run(&backend, &config, env, no_local, command, progress).await?;
             process::exit(exit_code);
         }
         Command::Import {
+            ref env,
             ref file,
             ref import_format,
             overwrite,
             dry_run,
         } => {
-            let config = resolve_config(&cli)?;
+            let config = resolve_config(&cli, env.as_deref())?;
             let backend = create_backend(&config).await?;
             let env = secret::require_env(config.default_environment.as_deref())?;
             import::run(
