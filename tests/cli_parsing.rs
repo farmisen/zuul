@@ -73,11 +73,10 @@ fn env_delete_dry_run() {
 
 #[test]
 fn secret_get() {
-    let cli = parse(&["secret", "--env", "prod", "get", "DB_URL"]);
+    let cli = parse(&["secret", "get", "DB_URL", "--env", "prod"]);
     match cli.command {
         Command::Secret {
-            env,
-            command: SecretCommand::Get { name },
+            command: SecretCommand::Get { name, env },
         } => {
             assert_eq!(env.as_deref(), Some("prod"));
             assert_eq!(name, "DB_URL");
@@ -88,11 +87,10 @@ fn secret_get() {
 
 #[test]
 fn secret_set_with_value() {
-    let cli = parse(&["secret", "--env", "dev", "set", "API_KEY", "secret123"]);
+    let cli = parse(&["secret", "set", "API_KEY", "secret123", "--env", "dev"]);
     match cli.command {
         Command::Secret {
-            env,
-            command: SecretCommand::Set { name, value, .. },
+            command: SecretCommand::Set { name, value, env, .. },
         } => {
             assert_eq!(env.as_deref(), Some("dev"));
             assert_eq!(name, "API_KEY");

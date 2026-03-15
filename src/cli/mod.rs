@@ -79,10 +79,6 @@ pub enum Command {
 
     /// Manage secrets
     Secret {
-        /// Target environment (overrides default from config)
-        #[arg(short, long)]
-        env: Option<String>,
-
         #[command(subcommand)]
         command: SecretCommand,
     },
@@ -238,12 +234,20 @@ pub enum EnvCommand {
 #[derive(Debug, Subcommand)]
 pub enum SecretCommand {
     /// List secrets
-    List,
+    List {
+        /// Target environment (overrides default from config)
+        #[arg(short, long)]
+        env: Option<String>,
+    },
 
     /// Get a secret's value
     Get {
         /// Secret name
         name: String,
+
+        /// Target environment (overrides default from config)
+        #[arg(short, long)]
+        env: Option<String>,
     },
 
     /// Set a secret's value
@@ -261,6 +265,10 @@ pub enum SecretCommand {
         /// Read value from stdin
         #[arg(long)]
         from_stdin: bool,
+
+        /// Target environment (overrides default from config)
+        #[arg(short, long)]
+        env: Option<String>,
     },
 
     /// Delete a secret
@@ -275,12 +283,20 @@ pub enum SecretCommand {
         /// Preview what would be deleted
         #[arg(long)]
         dry_run: bool,
+
+        /// Target environment (overrides default from config)
+        #[arg(short, long)]
+        env: Option<String>,
     },
 
     /// Show secret info and metadata
     Info {
         /// Secret name
         name: String,
+
+        /// Target environment (overrides default from config)
+        #[arg(short, long)]
+        env: Option<String>,
     },
 
     /// Copy a secret from one environment to another
@@ -314,6 +330,10 @@ pub enum MetadataCommand {
     List {
         /// Secret name
         name: String,
+
+        /// Target environment (overrides default from config)
+        #[arg(short, long)]
+        env: Option<String>,
     },
 
     /// Set a metadata key-value pair
@@ -326,6 +346,10 @@ pub enum MetadataCommand {
 
         /// Metadata value
         value: String,
+
+        /// Target environment (overrides default from config)
+        #[arg(short, long)]
+        env: Option<String>,
     },
 
     /// Delete a metadata key
@@ -335,6 +359,10 @@ pub enum MetadataCommand {
 
         /// Metadata key
         key: String,
+
+        /// Target environment (overrides default from config)
+        #[arg(short, long)]
+        env: Option<String>,
     },
 }
 
