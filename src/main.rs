@@ -179,10 +179,9 @@ async fn run(cli: Cli) -> Result<(), ZuulError> {
             }
             SecretCommand::Metadata { command: meta_cmd } => match meta_cmd {
                 MetadataCommand::List { name, env } => {
-                    let config = resolve_config(&cli, env.as_deref())?;
+                    let config = resolve_config(&cli, None)?;
                     let backend = create_backend(&config).await?;
-                    let env = config.default_environment.as_deref();
-                    metadata::list(&backend, name, env, &cli.format).await?;
+                    metadata::list(&backend, name, env.as_deref(), &cli.format).await?;
                 }
                 MetadataCommand::Set {
                     name,
@@ -190,16 +189,14 @@ async fn run(cli: Cli) -> Result<(), ZuulError> {
                     value,
                     env,
                 } => {
-                    let config = resolve_config(&cli, env.as_deref())?;
+                    let config = resolve_config(&cli, None)?;
                     let backend = create_backend(&config).await?;
-                    let env = config.default_environment.as_deref();
-                    metadata::set(&backend, name, env, key, value, cli.quiet).await?;
+                    metadata::set(&backend, name, env.as_deref(), key, value, cli.quiet).await?;
                 }
                 MetadataCommand::Delete { name, key, env } => {
-                    let config = resolve_config(&cli, env.as_deref())?;
+                    let config = resolve_config(&cli, None)?;
                     let backend = create_backend(&config).await?;
-                    let env = config.default_environment.as_deref();
-                    metadata::delete(&backend, name, env, key, cli.quiet).await?;
+                    metadata::delete(&backend, name, env.as_deref(), key, cli.quiet).await?;
                 }
             },
         },

@@ -90,7 +90,9 @@ fn secret_set_with_value() {
     let cli = parse(&["secret", "set", "API_KEY", "secret123", "--env", "dev"]);
     match cli.command {
         Command::Secret {
-            command: SecretCommand::Set { name, value, env, .. },
+            command: SecretCommand::Set {
+                name, value, env, ..
+            },
         } => {
             assert_eq!(env.as_deref(), Some("dev"));
             assert_eq!(name, "API_KEY");
