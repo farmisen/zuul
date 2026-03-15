@@ -179,3 +179,37 @@ fn global_flags() {
     assert!(cli.quiet);
     assert!(cli.verbose);
 }
+
+#[test]
+fn diff_basic() {
+    let cli = parse(&["diff", "dev", "staging"]);
+    match cli.command {
+        Command::Diff {
+            env_a,
+            env_b,
+            show_values,
+        } => {
+            assert_eq!(env_a, "dev");
+            assert_eq!(env_b, "staging");
+            assert!(!show_values);
+        }
+        _ => panic!("expected Diff"),
+    }
+}
+
+#[test]
+fn diff_show_values() {
+    let cli = parse(&["diff", "dev", "production", "--show-values"]);
+    match cli.command {
+        Command::Diff {
+            env_a,
+            env_b,
+            show_values,
+        } => {
+            assert_eq!(env_a, "dev");
+            assert_eq!(env_b, "production");
+            assert!(show_values);
+        }
+        _ => panic!("expected Diff"),
+    }
+}

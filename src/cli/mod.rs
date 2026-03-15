@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod diff;
 pub mod env;
 pub mod export;
 pub mod import;
@@ -141,6 +142,19 @@ pub enum Command {
         /// Preview what would be imported without making changes
         #[arg(long)]
         dry_run: bool,
+    },
+
+    /// Compare secrets between two environments
+    Diff {
+        /// First environment
+        env_a: String,
+
+        /// Second environment
+        env_b: String,
+
+        /// Show actual secret values (masked by default)
+        #[arg(long)]
+        show_values: bool,
     },
 }
 

@@ -6,8 +6,8 @@ use rustls::crypto::ring::default_provider;
 use zuul::backend::gcp::GcpClient;
 use zuul::backend::gcp_backend::GcpBackend;
 use zuul::cli::{
-    Cli, Command, EnvCommand, MetadataCommand, SecretCommand, auth, env, export, import, init,
-    metadata, run, secret,
+    Cli, Command, EnvCommand, MetadataCommand, SecretCommand, auth, diff, env, export, import,
+    init, metadata, run, secret,
 };
 use zuul::config::{CliOverrides, Config, load_config};
 use zuul::error::ZuulError;
@@ -229,6 +229,15 @@ async fn run(cli: Cli) -> Result<(), ZuulError> {
                 progress,
             )
             .await?;
+        }
+        Command::Diff {
+            ref env_a,
+            ref env_b,
+            show_values,
+        } => {
+            let config = resolve_config(&cli, None)?;
+            let backend = create_backend(&config).await?;
+            diff::run(&backend, env_a, env_b, show_values, &cli.format, progress).await?;
         }
     }
 
