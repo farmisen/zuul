@@ -2,7 +2,6 @@ use comfy_table::{ContentArrangement, Table};
 use console::style;
 
 use crate::backend::Backend;
-use crate::backend::gcp_backend::GcpBackend;
 use crate::cli::OutputFormat;
 use crate::error::ZuulError;
 
@@ -11,7 +10,7 @@ use crate::error::ZuulError;
 /// If `env` is provided, returns just that one (scoped operation).
 /// Otherwise, looks up all environments via `list_secrets`.
 async fn resolve_environments(
-    backend: &GcpBackend,
+    backend: &impl Backend,
     name: &str,
     env: Option<&str>,
 ) -> Result<Vec<String>, ZuulError> {
@@ -37,7 +36,7 @@ async fn resolve_environments(
 /// With `--env`: show metadata for that single environment (KEY, VALUE columns).
 /// Without `--env`: show metadata across all environments (KEY + one column per env).
 pub async fn list(
-    backend: &GcpBackend,
+    backend: &impl Backend,
     name: &str,
     env: Option<&str>,
     format: &OutputFormat,
@@ -141,7 +140,7 @@ pub async fn list(
 /// Sets the metadata key across all environments where the secret exists.
 /// If `--env` is provided, scopes to just that environment.
 pub async fn set(
-    backend: &GcpBackend,
+    backend: &impl Backend,
     name: &str,
     env: Option<&str>,
     key: &str,
@@ -178,7 +177,7 @@ pub async fn set(
 /// Deletes the metadata key from all environments where the secret exists.
 /// If `--env` is provided, scopes to just that environment.
 pub async fn delete(
-    backend: &GcpBackend,
+    backend: &impl Backend,
     name: &str,
     env: Option<&str>,
     key: &str,

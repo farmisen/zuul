@@ -5,7 +5,6 @@ use comfy_table::{ContentArrangement, Table};
 use console::style;
 
 use crate::backend::Backend;
-use crate::backend::gcp_backend::GcpBackend;
 use crate::cli::OutputFormat;
 use crate::error::ZuulError;
 use crate::progress::{self, ProgressOpts};
@@ -37,7 +36,7 @@ fn format_metadata(meta: &std::collections::HashMap<String, String>) -> String {
 
 /// Run `zuul secret list`.
 pub async fn list(
-    backend: &GcpBackend,
+    backend: &impl Backend,
     env: Option<&str>,
     with_metadata: bool,
     format: &OutputFormat,
@@ -185,7 +184,7 @@ pub async fn list(
 
 /// Run `zuul secret get`.
 pub async fn get(
-    backend: &GcpBackend,
+    backend: &impl Backend,
     name: &str,
     env: Option<&str>,
     progress: ProgressOpts,
@@ -203,7 +202,7 @@ pub async fn get(
 
 /// Run `zuul secret set`.
 pub async fn set(
-    backend: &GcpBackend,
+    backend: &impl Backend,
     name: &str,
     env: Option<&str>,
     value: Option<&str>,
@@ -247,7 +246,7 @@ pub async fn set(
 
 /// Run `zuul secret delete`.
 pub async fn delete(
-    backend: &GcpBackend,
+    backend: &impl Backend,
     name: &str,
     env: Option<&str>,
     force: bool,
@@ -318,7 +317,7 @@ pub async fn delete(
 
 /// Run `zuul secret info`.
 pub async fn info(
-    backend: &GcpBackend,
+    backend: &impl Backend,
     name: &str,
     env: Option<&str>,
     format: &OutputFormat,
@@ -390,7 +389,7 @@ pub async fn info(
 
 /// Run `zuul secret copy`.
 pub async fn copy(
-    backend: &GcpBackend,
+    backend: &impl Backend,
     name: &str,
     from: &str,
     to: &str,

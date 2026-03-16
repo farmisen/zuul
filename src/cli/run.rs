@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::process::Stdio;
 
 use crate::backend::Backend;
-use crate::backend::gcp_backend::GcpBackend;
 use crate::config::Config;
 use crate::error::ZuulError;
 use crate::progress::{self, ProgressOpts};
@@ -13,7 +12,7 @@ use crate::progress::{self, ProgressOpts};
 /// (unless `no_local` is set), merges them into the current process environment
 /// (stripping `ZUUL_*` vars), spawns the child process, and returns its exit code.
 pub async fn run(
-    backend: &GcpBackend,
+    backend: &impl Backend,
     config: &Config,
     env: &str,
     no_local: bool,

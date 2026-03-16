@@ -65,7 +65,7 @@ async fn try_connect(project_id: &str, credentials: Option<&str>) -> Result<GcpB
 
 /// Print authentication success info.
 async fn print_success(
-    backend: &GcpBackend,
+    backend: &impl Backend,
     project_id: &str,
     check: bool,
 ) -> Result<(), ZuulError> {

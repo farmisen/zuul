@@ -5,7 +5,6 @@ use std::path::Path;
 use console::style;
 
 use crate::backend::Backend;
-use crate::backend::gcp_backend::GcpBackend;
 use crate::cli::ImportFormat;
 use crate::error::ZuulError;
 use crate::progress::{self, ProgressOpts};
@@ -15,7 +14,7 @@ use crate::progress::{self, ProgressOpts};
 /// Parses secrets from a file, checks for existing secrets, and creates/updates
 /// them in the target environment. Supports `--dry-run` and `--overwrite`.
 pub async fn run(
-    backend: &GcpBackend,
+    backend: &impl Backend,
     env: &str,
     file: &Path,
     format: Option<&ImportFormat>,

@@ -3,7 +3,6 @@ use std::fs;
 use std::path::Path;
 
 use crate::backend::Backend;
-use crate::backend::gcp_backend::GcpBackend;
 use crate::cli::ExportFormat;
 use crate::config::Config;
 use crate::error::ZuulError;
@@ -16,7 +15,7 @@ use crate::progress::{self, ProgressOpts};
 /// (unless `no_local` is set), renders in the requested format, and writes
 /// to the output file or stdout.
 pub async fn run(
-    backend: &GcpBackend,
+    backend: &impl Backend,
     config: &Config,
     env: &str,
     format: &ExportFormat,

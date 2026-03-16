@@ -4,7 +4,6 @@ use comfy_table::{ContentArrangement, Table};
 use console::style;
 
 use crate::backend::Backend;
-use crate::backend::gcp_backend::GcpBackend;
 use crate::cli::OutputFormat;
 use crate::error::ZuulError;
 use crate::progress::{self, ProgressOpts};
@@ -33,7 +32,7 @@ struct DiffEntry {
 
 /// Run `zuul diff <env_a> <env_b>`.
 pub async fn run(
-    backend: &GcpBackend,
+    backend: &impl Backend,
     env_a: &str,
     env_b: &str,
     show_values: bool,

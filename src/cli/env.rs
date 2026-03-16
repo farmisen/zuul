@@ -2,14 +2,13 @@ use comfy_table::{ContentArrangement, Table};
 use console::style;
 
 use crate::backend::Backend;
-use crate::backend::gcp_backend::GcpBackend;
 use crate::cli::OutputFormat;
 use crate::error::ZuulError;
 use crate::progress::{self, ProgressOpts};
 use crate::prompt;
 
 /// Run `zuul env list`.
-pub async fn list(backend: &GcpBackend, format: &OutputFormat) -> Result<(), ZuulError> {
+pub async fn list(backend: &impl Backend, format: &OutputFormat) -> Result<(), ZuulError> {
     let envs = backend.list_environments().await?;
 
     if envs.is_empty() {
@@ -58,7 +57,7 @@ pub async fn list(backend: &GcpBackend, format: &OutputFormat) -> Result<(), Zuu
 
 /// Run `zuul env create`.
 pub async fn create(
-    backend: &GcpBackend,
+    backend: &impl Backend,
     name: &str,
     description: Option<&str>,
     format: &OutputFormat,
@@ -81,7 +80,7 @@ pub async fn create(
 
 /// Run `zuul env show`.
 pub async fn show(
-    backend: &GcpBackend,
+    backend: &impl Backend,
     name: &str,
     format: &OutputFormat,
 ) -> Result<(), ZuulError> {
@@ -129,7 +128,7 @@ pub async fn show(
 
 /// Run `zuul env update`.
 pub async fn update(
-    backend: &GcpBackend,
+    backend: &impl Backend,
     name: &str,
     new_name: Option<&str>,
     new_description: Option<&str>,
@@ -180,7 +179,7 @@ pub async fn update(
 
 /// Run `zuul env delete`.
 pub async fn delete(
-    backend: &GcpBackend,
+    backend: &impl Backend,
     name: &str,
     force: bool,
     dry_run: bool,
@@ -291,7 +290,7 @@ pub async fn delete(
 /// exist. Secrets already present in the target are overwritten; secrets only
 /// in the target are left untouched.
 pub async fn copy(
-    backend: &GcpBackend,
+    backend: &impl Backend,
     from: &str,
     to: &str,
     force: bool,
@@ -432,7 +431,7 @@ pub async fn copy(
 ///
 /// Deletes all secrets in an environment but keeps the environment itself.
 pub async fn clear(
-    backend: &GcpBackend,
+    backend: &impl Backend,
     name: &str,
     force: bool,
     dry_run: bool,
