@@ -1,3 +1,5 @@
+use std::future::Future;
+
 use comfy_table::{ContentArrangement, Table};
 use console::style;
 
@@ -139,6 +141,8 @@ pub async fn list(
 ///
 /// Sets the metadata key across all environments where the secret exists.
 /// If `--env` is provided, scopes to just that environment.
+/// When operating across multiple environments, uses best-effort: attempts all
+/// environments, collects errors, and reports a summary at the end.
 pub async fn set(
     backend: &impl Backend,
     name: &str,
@@ -149,33 +153,42 @@ pub async fn set(
 ) -> Result<(), ZuulError> {
     let envs = resolve_environments(backend, name, env).await?;
 
-    for environment in &envs {
-        backend.set_metadata(name, environment, key, value).await?;
-    }
-
-    if !non_interactive {
-        if envs.len() == 1 {
+    // Single environment: fail fast (no partial-failure scenario).
+    if envs.len() == 1 {
+        backend.set_metadata(name, &envs[0], key, value).await?;
+        if !non_interactive {
             println!(
                 "{} Set metadata '{key}' on secret '{name}' in environment '{}'.",
                 style("✔").green(),
                 envs[0]
             );
-        } else {
-            println!(
-                "{} Set metadata '{key}' on secret '{name}' across {} environments.",
-                style("✔").green(),
-                envs.len()
-            );
         }
+        return Ok(());
     }
 
-    Ok(())
+    // Multiple environments: best-effort.
+    let (succeeded, failed) = apply_across_envs(&envs, |environment| {
+        backend.set_metadata(name, environment, key, value)
+    })
+    .await;
+
+    if !non_interactive {
+        print_cross_env_summary("Set metadata", key, name, &succeeded, &failed);
+    }
+
+    if failed.is_empty() {
+        Ok(())
+    } else {
+        Err(cross_env_error("set", key, name, &failed))
+    }
 }
 
 /// Run `zuul secret metadata delete`.
 ///
 /// Deletes the metadata key from all environments where the secret exists.
 /// If `--env` is provided, scopes to just that environment.
+/// When operating across multiple environments, uses best-effort: attempts all
+/// environments, collects errors, and reports a summary at the end.
 pub async fn delete(
     backend: &impl Backend,
     name: &str,
@@ -185,25 +198,107 @@ pub async fn delete(
 ) -> Result<(), ZuulError> {
     let envs = resolve_environments(backend, name, env).await?;
 
-    for environment in &envs {
-        backend.delete_metadata(name, environment, key).await?;
-    }
-
-    if !non_interactive {
-        if envs.len() == 1 {
+    // Single environment: fail fast (no partial-failure scenario).
+    if envs.len() == 1 {
+        backend.delete_metadata(name, &envs[0], key).await?;
+        if !non_interactive {
             println!(
                 "{} Deleted metadata '{key}' from secret '{name}' in environment '{}'.",
                 style("✔").green(),
                 envs[0]
             );
-        } else {
-            println!(
-                "{} Deleted metadata '{key}' from secret '{name}' across {} environments.",
-                style("✔").green(),
-                envs.len()
-            );
+        }
+        return Ok(());
+    }
+
+    // Multiple environments: best-effort.
+    let (succeeded, failed) = apply_across_envs(&envs, |environment| {
+        backend.delete_metadata(name, environment, key)
+    })
+    .await;
+
+    if !non_interactive {
+        print_cross_env_summary("Deleted metadata", key, name, &succeeded, &failed);
+    }
+
+    if failed.is_empty() {
+        Ok(())
+    } else {
+        Err(cross_env_error("delete", key, name, &failed))
+    }
+}
+
+/// Apply an async operation to each environment, collecting successes and failures.
+async fn apply_across_envs<'a, F, Fut>(
+    envs: &'a [String],
+    operation: F,
+) -> (Vec<&'a str>, Vec<(&'a str, ZuulError)>)
+where
+    F: Fn(&'a str) -> Fut,
+    Fut: Future<Output = Result<(), ZuulError>>,
+{
+    let mut succeeded: Vec<&str> = Vec::new();
+    let mut failed: Vec<(&str, ZuulError)> = Vec::new();
+
+    for environment in envs {
+        match operation(environment).await {
+            Ok(()) => succeeded.push(environment),
+            Err(e) => failed.push((environment, e)),
         }
     }
 
-    Ok(())
+    (succeeded, failed)
+}
+
+/// Print a human-readable summary of a cross-environment operation.
+fn print_cross_env_summary(
+    verb: &str,
+    key: &str,
+    name: &str,
+    succeeded: &[&str],
+    failed: &[(&str, ZuulError)],
+) {
+    if failed.is_empty() {
+        println!(
+            "{} {verb} '{key}' on secret '{name}' across {} environments.",
+            style("✔").green(),
+            succeeded.len()
+        );
+        return;
+    }
+
+    // Some succeeded.
+    if !succeeded.is_empty() {
+        println!(
+            "{} {verb} '{key}' on secret '{name}' in: {}",
+            style("✔").green(),
+            succeeded.join(", ")
+        );
+    }
+
+    // Report each failure.
+    for (env, err) in failed {
+        println!("{} Failed in '{}': {}", style("✖").red(), env, err);
+    }
+
+    let total = succeeded.len() + failed.len();
+    println!("\n{} of {} environments succeeded.", succeeded.len(), total);
+}
+
+/// Build a `ZuulError` summarising a partial cross-environment failure.
+fn cross_env_error(
+    operation: &str,
+    key: &str,
+    name: &str,
+    failed: &[(&str, ZuulError)],
+) -> ZuulError {
+    let details: Vec<String> = failed
+        .iter()
+        .map(|(env, err)| format!("  {env}: {err}"))
+        .collect();
+    ZuulError::Backend(format!(
+        "Failed to {operation} metadata '{key}' on secret '{name}' in {} environment(s):\n{}",
+        failed.len(),
+        details.join("\n")
+    ))
 }

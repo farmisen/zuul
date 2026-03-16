@@ -42,6 +42,8 @@ struct MockState {
 struct MockBackend {
     access: AccessLevel,
     state: Mutex<MockState>,
+    /// Environments where metadata write operations should fail (simulates partial failures).
+    fail_metadata_envs: Vec<String>,
 }
 
 impl MockBackend {
@@ -53,6 +55,19 @@ impl MockBackend {
                 secrets: HashMap::new(),
                 metadata: HashMap::new(),
             }),
+            fail_metadata_envs: Vec::new(),
+        }
+    }
+
+    fn with_failing_metadata_envs(access: AccessLevel, envs: Vec<String>) -> Self {
+        Self {
+            access,
+            state: Mutex::new(MockState {
+                environments: HashMap::new(),
+                secrets: HashMap::new(),
+                metadata: HashMap::new(),
+            }),
+            fail_metadata_envs: envs,
         }
     }
 
@@ -345,13 +360,19 @@ impl Backend for MockBackend {
         key: &str,
         value: &str,
     ) -> impl Future<Output = Result<(), ZuulError>> + Send {
-        let result = self.check_env_access(environment).map(|()| {
+        let result = self.check_env_access(environment).and_then(|()| {
+            if self.fail_metadata_envs.iter().any(|e| e == environment) {
+                return Err(ZuulError::Backend(format!(
+                    "simulated failure for environment '{environment}'"
+                )));
+            }
             let mut state = self.state.lock().unwrap();
             state
                 .metadata
                 .entry((name.to_string(), environment.to_string()))
                 .or_default()
                 .insert(key.to_string(), value.to_string());
+            Ok(())
         });
         async move { result }
     }
@@ -362,7 +383,12 @@ impl Backend for MockBackend {
         environment: &str,
         key: &str,
     ) -> impl Future<Output = Result<(), ZuulError>> + Send {
-        let result = self.check_env_access(environment).map(|()| {
+        let result = self.check_env_access(environment).and_then(|()| {
+            if self.fail_metadata_envs.iter().any(|e| e == environment) {
+                return Err(ZuulError::Backend(format!(
+                    "simulated failure for environment '{environment}'"
+                )));
+            }
             let mut state = self.state.lock().unwrap();
             if let Some(meta) = state
                 .metadata
@@ -370,6 +396,7 @@ impl Backend for MockBackend {
             {
                 meta.remove(key);
             }
+            Ok(())
         });
         async move { result }
     }
@@ -693,4 +720,105 @@ async fn permission_denied_does_not_reveal_secret_value() {
         !msg.contains("super_secret_password_123"),
         "error message must not leak secret value, got: {msg}"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Best-effort cross-environment operations (5.6)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn cross_env_metadata_set_partial_failure_reports_all() {
+    // Admin can list everything, but metadata writes fail for staging and production.
+    let backend = MockBackend::with_failing_metadata_envs(
+        AccessLevel::Admin,
+        vec!["staging".to_string(), "production".to_string()],
+    );
+    backend.seed_environment("dev", None);
+    backend.seed_environment("staging", None);
+    backend.seed_environment("production", None);
+    backend.seed_secret("KEY", "dev", "d");
+    backend.seed_secret("KEY", "staging", "s");
+    backend.seed_secret("KEY", "production", "p");
+
+    // Cross-env set (no --env) should attempt all three, succeed on dev, fail on the others.
+    let err = cli::metadata::set(&backend, "KEY", None, "owner", "team", true)
+        .await
+        .unwrap_err();
+    let msg = err.to_string();
+
+    // Error should mention the failed environments.
+    assert!(msg.contains("staging"), "should mention staging: {msg}");
+    assert!(
+        msg.contains("production"),
+        "should mention production: {msg}"
+    );
+
+    // Dev should have the metadata set despite the partial failure.
+    let meta = backend.get_metadata("KEY", "dev").await.unwrap();
+    assert_eq!(meta.get("owner").map(String::as_str), Some("team"));
+}
+
+#[tokio::test]
+async fn cross_env_metadata_delete_partial_failure_reports_all() {
+    // Admin can list everything, but metadata writes fail for production.
+    let backend = MockBackend::with_failing_metadata_envs(
+        AccessLevel::Admin,
+        vec!["production".to_string()],
+    );
+    backend.seed_environment("dev", None);
+    backend.seed_environment("production", None);
+    backend.seed_secret("KEY", "dev", "d");
+    backend.seed_secret("KEY", "production", "p");
+
+    // Pre-seed metadata in dev.
+    backend
+        .set_metadata("KEY", "dev", "tag", "v1")
+        .await
+        .unwrap();
+
+    // Cross-env delete should succeed on dev, fail on production.
+    let err = cli::metadata::delete(&backend, "KEY", None, "tag", true)
+        .await
+        .unwrap_err();
+    let msg = err.to_string();
+    assert!(
+        msg.contains("production"),
+        "should mention production: {msg}"
+    );
+
+    // Dev metadata should be deleted despite partial failure.
+    let meta = backend.get_metadata("KEY", "dev").await.unwrap();
+    assert!(!meta.contains_key("tag"), "tag should be deleted from dev");
+}
+
+#[tokio::test]
+async fn cross_env_metadata_set_all_succeed() {
+    let backend = MockBackend::new(AccessLevel::Admin);
+    backend.seed_environment("dev", None);
+    backend.seed_environment("staging", None);
+    backend.seed_secret("KEY", "dev", "d");
+    backend.seed_secret("KEY", "staging", "s");
+
+    // Cross-env set with admin access should succeed on all.
+    cli::metadata::set(&backend, "KEY", None, "owner", "ops", true)
+        .await
+        .unwrap();
+
+    let dev_meta = backend.get_metadata("KEY", "dev").await.unwrap();
+    let stg_meta = backend.get_metadata("KEY", "staging").await.unwrap();
+    assert_eq!(dev_meta.get("owner").map(String::as_str), Some("ops"));
+    assert_eq!(stg_meta.get("owner").map(String::as_str), Some("ops"));
+}
+
+#[tokio::test]
+async fn cross_env_metadata_single_env_still_fails_fast() {
+    // When --env is provided, there's only one environment — errors propagate directly.
+    let backend = MockBackend::new(AccessLevel::Scoped(vec!["dev".to_string()]));
+    backend.seed_environment("production", None);
+    backend.seed_secret("KEY", "production", "p");
+
+    let err = cli::metadata::set(&backend, "KEY", Some("production"), "owner", "me", true)
+        .await
+        .unwrap_err();
+    assert!(matches!(err, ZuulError::PermissionDenied { .. }));
 }
