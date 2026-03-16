@@ -174,9 +174,9 @@ fn import_with_options() {
 
 #[test]
 fn global_flags() {
-    let cli = parse(&["--project", "my-proj", "-q", "-v", "env", "list"]);
+    let cli = parse(&["--project", "my-proj", "--non-interactive", "-v", "env", "list"]);
     assert_eq!(cli.project.as_deref(), Some("my-proj"));
-    assert!(cli.quiet);
+    assert!(cli.non_interactive);
     assert!(cli.verbose);
 }
 

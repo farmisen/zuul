@@ -2,13 +2,14 @@ use std::io::{IsTerminal, Read};
 use std::path::Path;
 
 use comfy_table::{ContentArrangement, Table};
-use dialoguer::{Confirm, Password};
+use console::style;
 
 use crate::backend::Backend;
 use crate::backend::gcp_backend::GcpBackend;
 use crate::cli::OutputFormat;
 use crate::error::ZuulError;
 use crate::progress::{self, ProgressOpts};
+use crate::prompt;
 
 /// Resolve the target environment from config, returning an error if not set.
 pub fn require_env(env: Option<&str>) -> Result<&str, ZuulError> {
@@ -104,10 +105,7 @@ pub async fn set(
     } else if let Some(v) = value {
         v.to_string()
     } else {
-        Password::new()
-            .with_prompt("Secret value")
-            .interact()
-            .map_err(|e| ZuulError::Config(format!("Failed to read input: {e}")))?
+        prompt::password("Secret value", progress.non_interactive)?
     };
 
     let sp = progress::spinner(&format!("Setting secret '{name}'..."), progress);
@@ -116,8 +114,11 @@ pub async fn set(
         .await?;
     sp.finish_and_clear();
 
-    if !progress.quiet {
-        println!("Set secret '{name}' in environment '{environment}'.");
+    if !progress.non_interactive {
+        println!(
+            "{} Set secret '{name}' in environment '{environment}'.",
+            style("✔").green()
+        );
     }
 
     Ok(())
@@ -161,19 +162,13 @@ pub async fn delete(
         return Ok(());
     }
 
-    if !force {
-        let confirmed = Confirm::new()
-            .with_prompt(format!(
-                "Delete secret '{name}' from environment '{environment}'?"
-            ))
-            .default(false)
-            .interact()
-            .map_err(|e| ZuulError::Config(format!("Failed to read input: {e}")))?;
-
-        if !confirmed {
-            println!("Cancelled.");
-            return Ok(());
-        }
+    if !prompt::confirm(
+        &format!("Delete secret '{name}' from environment '{environment}'?"),
+        force,
+        progress.non_interactive,
+    )? {
+        println!("Cancelled.");
+        return Ok(());
     }
 
     let sp = progress::spinner(&format!("Deleting secret '{name}'..."), progress);
@@ -181,7 +176,10 @@ pub async fn delete(
     sp.finish_and_clear();
 
     match format {
-        OutputFormat::Text => println!("Deleted secret '{name}' from environment '{environment}'."),
+        OutputFormat::Text => println!(
+            "{} Deleted secret '{name}' from environment '{environment}'.",
+            style("✔").green()
+        ),
         OutputFormat::Json => {
             let value = serde_json::json!({
                 "deleted": true,
@@ -284,26 +282,25 @@ pub async fn copy(
     // Check if the secret already exists in the target environment.
     let exists_in_target = backend.get_secret(name, to).await.is_ok();
 
-    if exists_in_target && !force {
-        let confirmed = Confirm::new()
-            .with_prompt(format!(
-                "Secret '{name}' already exists in environment '{to}'. Overwrite?"
-            ))
-            .default(false)
-            .interact()
-            .map_err(|e| ZuulError::Config(format!("Failed to read input: {e}")))?;
-
-        if !confirmed {
-            println!("Cancelled.");
-            return Ok(());
-        }
+    if exists_in_target
+        && !prompt::confirm(
+            &format!("Secret '{name}' already exists in environment '{to}'. Overwrite?"),
+            force,
+            progress.non_interactive,
+        )?
+    {
+        println!("Cancelled.");
+        return Ok(());
     }
 
     backend.set_secret(name, to, &source.value).await?;
     sp.finish_and_clear();
 
-    if !progress.quiet {
-        println!("Copied secret '{name}' from '{from}' to '{to}'.");
+    if !progress.non_interactive {
+        println!(
+            "{} Copied secret '{name}' from '{from}' to '{to}'.",
+            style("✔").green()
+        );
     }
 
     Ok(())

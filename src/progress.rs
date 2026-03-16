@@ -3,21 +3,20 @@ use std::time::Duration;
 
 use indicatif::{ProgressBar, ProgressStyle};
 
-/// Options controlling progress display.
+/// Options controlling progress display and interactivity.
 #[derive(Debug, Clone, Copy)]
 pub struct ProgressOpts {
-    pub quiet: bool,
     pub non_interactive: bool,
 }
 
 impl ProgressOpts {
     /// Returns `true` if progress indicators should be hidden.
     fn is_hidden(self) -> bool {
-        self.quiet || self.non_interactive || !std::io::stderr().is_terminal()
+        self.non_interactive || !std::io::stderr().is_terminal()
     }
 }
 
-/// Create a spinner with a message, respecting quiet/non-interactive/pipe modes.
+/// Create a spinner with a message, respecting non-interactive/pipe modes.
 ///
 /// Returns a [`ProgressBar`] that either renders a spinner to stderr or is hidden.
 /// The caller should call `.finish_and_clear()` or `.finish_with_message()` when done.

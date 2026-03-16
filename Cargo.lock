@@ -2841,6 +2841,7 @@ dependencies = [
  "chrono",
  "clap",
  "comfy-table",
+ "console",
  "crc32c",
  "dialoguer",
  "gcloud-sdk",

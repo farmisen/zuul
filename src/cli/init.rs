@@ -2,9 +2,10 @@ use std::fs;
 use std::io::Write;
 use std::path::Path;
 
-use dialoguer::Input;
+use console::style;
 
 use crate::error::ZuulError;
+use crate::prompt;
 
 /// The config file name.
 const CONFIG_FILE: &str = ".zuul.toml";
@@ -17,7 +18,12 @@ const GITIGNORE_FILE: &str = ".gitignore";
 ///
 /// Creates a `.zuul.toml` in the current directory and ensures
 /// `.zuul.local.toml` is listed in `.gitignore`.
-pub fn run(dir: &Path, project: Option<String>, backend: &str) -> Result<(), ZuulError> {
+pub fn run(
+    dir: &Path,
+    project: Option<String>,
+    backend: &str,
+    non_interactive: bool,
+) -> Result<(), ZuulError> {
     let config_path = dir.join(CONFIG_FILE);
 
     if config_path.exists() {
@@ -29,10 +35,7 @@ pub fn run(dir: &Path, project: Option<String>, backend: &str) -> Result<(), Zuu
 
     let project_id = match project {
         Some(id) => id,
-        None => Input::new()
-            .with_prompt("GCP project ID")
-            .interact_text()
-            .map_err(|e| ZuulError::Config(format!("Failed to read input: {e}")))?,
+        None => prompt::input("GCP project ID", non_interactive)?,
     };
 
     let config_content = format!(
@@ -49,7 +52,11 @@ pub fn run(dir: &Path, project: Option<String>, backend: &str) -> Result<(), Zuu
 
     add_to_gitignore(dir)?;
 
-    println!("Created {CONFIG_FILE} in {}", dir.display());
+    println!(
+        "{} Created {CONFIG_FILE} in {}",
+        style("✔").green(),
+        dir.display()
+    );
     println!("\nNext steps:");
     println!("  zuul auth          # Set up GCP authentication");
     println!("  zuul env create    # Create your first environment");
@@ -106,6 +113,7 @@ mod tests {
             dir.path(),
             Some("my-project".to_string()),
             "gcp-secret-manager",
+            true,
         )
         .unwrap();
 
@@ -124,6 +132,7 @@ mod tests {
             dir.path(),
             Some("my-project".to_string()),
             "gcp-secret-manager",
+            true,
         );
         assert!(result.is_err());
         let err = result.unwrap_err();
@@ -137,6 +146,7 @@ mod tests {
             dir.path(),
             Some("my-project".to_string()),
             "gcp-secret-manager",
+            true,
         )
         .unwrap();
 
@@ -153,6 +163,7 @@ mod tests {
             dir.path(),
             Some("my-project".to_string()),
             "gcp-secret-manager",
+            true,
         )
         .unwrap();
 
@@ -170,6 +181,7 @@ mod tests {
             dir.path(),
             Some("my-project".to_string()),
             "gcp-secret-manager",
+            true,
         )
         .unwrap();
 
@@ -188,6 +200,7 @@ mod tests {
             dir.path(),
             Some("my-project".to_string()),
             "gcp-secret-manager",
+            true,
         )
         .unwrap();
 

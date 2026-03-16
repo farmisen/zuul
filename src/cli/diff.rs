@@ -1,6 +1,7 @@
 use std::collections::BTreeSet;
 
 use comfy_table::{ContentArrangement, Table};
+use console::style;
 
 use crate::backend::Backend;
 use crate::backend::gcp_backend::GcpBackend;
@@ -127,7 +128,7 @@ pub async fn run(
 /// Format a value for text display.
 fn format_value(value: &Option<String>, show_values: bool) -> String {
     match value {
-        None => "(not set)".to_string(),
+        None => style("(not set)").dim().to_string(),
         Some(v) => {
             if show_values {
                 v.clone()
@@ -145,8 +146,14 @@ fn print_text(entries: &[&DiffEntry], env_a: &str, env_b: &str, show_values: boo
     table.set_header(vec!["NAME", env_a, env_b]);
 
     for entry in entries {
+        let name = match entry.status {
+            DiffStatus::OnlyInA => style(&entry.name).green().to_string(),
+            DiffStatus::OnlyInB => style(&entry.name).red().to_string(),
+            DiffStatus::Differs => style(&entry.name).yellow().to_string(),
+            DiffStatus::Equal => entry.name.clone(),
+        };
         table.add_row(vec![
-            entry.name.clone(),
+            name,
             format_value(&entry.value_a, show_values),
             format_value(&entry.value_b, show_values),
         ]);

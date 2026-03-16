@@ -1,4 +1,5 @@
 use comfy_table::{ContentArrangement, Table};
+use console::style;
 
 use crate::backend::Backend;
 use crate::backend::gcp_backend::GcpBackend;
@@ -87,7 +88,7 @@ pub async fn set(
     env: Option<&str>,
     key: &str,
     value: &str,
-    quiet: bool,
+    non_interactive: bool,
 ) -> Result<(), ZuulError> {
     let envs = resolve_environments(backend, name, env).await?;
 
@@ -95,15 +96,17 @@ pub async fn set(
         backend.set_metadata(name, environment, key, value).await?;
     }
 
-    if !quiet {
+    if !non_interactive {
         if envs.len() == 1 {
             println!(
-                "Set metadata '{key}' on secret '{name}' in environment '{}'.",
+                "{} Set metadata '{key}' on secret '{name}' in environment '{}'.",
+                style("✔").green(),
                 envs[0]
             );
         } else {
             println!(
-                "Set metadata '{key}' on secret '{name}' across {} environments.",
+                "{} Set metadata '{key}' on secret '{name}' across {} environments.",
+                style("✔").green(),
                 envs.len()
             );
         }
@@ -121,7 +124,7 @@ pub async fn delete(
     name: &str,
     env: Option<&str>,
     key: &str,
-    quiet: bool,
+    non_interactive: bool,
 ) -> Result<(), ZuulError> {
     let envs = resolve_environments(backend, name, env).await?;
 
@@ -129,15 +132,17 @@ pub async fn delete(
         backend.delete_metadata(name, environment, key).await?;
     }
 
-    if !quiet {
+    if !non_interactive {
         if envs.len() == 1 {
             println!(
-                "Deleted metadata '{key}' from secret '{name}' in environment '{}'.",
+                "{} Deleted metadata '{key}' from secret '{name}' in environment '{}'.",
+                style("✔").green(),
                 envs[0]
             );
         } else {
             println!(
-                "Deleted metadata '{key}' from secret '{name}' across {} environments.",
+                "{} Deleted metadata '{key}' from secret '{name}' across {} environments.",
+                style("✔").green(),
                 envs.len()
             );
         }

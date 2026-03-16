@@ -2,6 +2,8 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
+use console::style;
+
 use crate::backend::Backend;
 use crate::backend::gcp_backend::GcpBackend;
 use crate::cli::ImportFormat;
@@ -90,7 +92,8 @@ pub async fn run(
     let total = created + overwritten;
     let action = if dry_run { "Would import" } else { "Imported" };
     println!(
-        "{action} {total} secrets ({skipped} skipped, {overwritten} overwritten) into environment '{env}'."
+        "{} {action} {total} secrets ({skipped} skipped, {overwritten} overwritten) into environment '{env}'.",
+        style("✔").green()
     );
 
     Ok(())

@@ -28,10 +28,6 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub config: Option<PathBuf>,
 
-    /// Suppress non-essential output
-    #[arg(short, long, global = true)]
-    pub quiet: bool,
-
     /// Verbose output for debugging
     #[arg(short, long, global = true)]
     pub verbose: bool,
@@ -39,6 +35,10 @@ pub struct Cli {
     /// Disable interactive prompts and progress indicators
     #[arg(long, global = true)]
     pub non_interactive: bool,
+
+    /// Disable colored output
+    #[arg(long, global = true)]
+    pub no_color: bool,
 
     #[command(subcommand)]
     pub command: Command,

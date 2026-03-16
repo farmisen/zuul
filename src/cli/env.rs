@@ -1,12 +1,12 @@
 use comfy_table::{ContentArrangement, Table};
-use dialoguer::Confirm;
-use dialoguer::Input;
+use console::style;
 
 use crate::backend::Backend;
 use crate::backend::gcp_backend::GcpBackend;
 use crate::cli::OutputFormat;
 use crate::error::ZuulError;
 use crate::progress::{self, ProgressOpts};
+use crate::prompt;
 
 /// Run `zuul env list`.
 pub async fn list(backend: &GcpBackend, format: &OutputFormat) -> Result<(), ZuulError> {
@@ -67,7 +67,7 @@ pub async fn create(
 
     match format {
         OutputFormat::Text => {
-            println!("Created environment '{}'.", env.name);
+            println!("{} Created environment '{}'.", style("✔").green(), env.name);
         }
         OutputFormat::Json => {
             let json = serde_json::to_string_pretty(&env)
@@ -134,6 +134,7 @@ pub async fn update(
     new_name: Option<&str>,
     new_description: Option<&str>,
     format: &OutputFormat,
+    progress: ProgressOpts,
 ) -> Result<(), ZuulError> {
     if new_name.is_none() && new_description.is_none() {
         return Err(ZuulError::Validation(
@@ -149,26 +150,22 @@ pub async fn update(
                 "Renaming '{name}' to '{target}' will rename {} secret(s).",
                 secrets.len()
             );
-            let confirmed = Confirm::new()
-                .with_prompt("Continue?")
-                .default(false)
-                .interact()
-                .map_err(|e| ZuulError::Config(format!("Failed to read input: {e}")))?;
-
-            if !confirmed {
+            if !prompt::confirm("Continue?", false, progress.non_interactive)? {
                 println!("Cancelled.");
                 return Ok(());
             }
         }
     }
 
+    let sp = progress::spinner("Updating environment...", progress);
     let env = backend
         .update_environment(name, new_name, new_description)
         .await?;
+    sp.finish_and_clear();
 
     match format {
         OutputFormat::Text => {
-            println!("Updated environment '{}'.", env.name);
+            println!("{} Updated environment '{}'.", style("✔").green(), env.name);
         }
         OutputFormat::Json => {
             let json = serde_json::to_string_pretty(&env)
@@ -186,6 +183,7 @@ pub async fn delete(
     name: &str,
     dry_run: bool,
     format: &OutputFormat,
+    progress: ProgressOpts,
 ) -> Result<(), ZuulError> {
     // Verify environment exists before showing confirmation.
     backend.get_environment(name).await?;
@@ -234,25 +232,22 @@ pub async fn delete(
 
     // Step 1: Confirm yes/no
     println!();
-    let confirmed = Confirm::new()
-        .with_prompt("Are you sure you want to delete this environment?")
-        .default(false)
-        .interact()
-        .map_err(|e| ZuulError::Config(format!("Failed to read input: {e}")))?;
-
-    if !confirmed {
+    if !prompt::confirm(
+        "Are you sure you want to delete this environment?",
+        false,
+        progress.non_interactive,
+    )? {
         println!("Cancelled.");
         return Ok(());
     }
 
     // Step 2: Type "delete <name>" to confirm
     let expected = format!("delete {name}");
-    let typed: String = Input::new()
-        .with_prompt(format!("Type '{expected}' to confirm"))
-        .interact_text()
-        .map_err(|e| ZuulError::Config(format!("Failed to read input: {e}")))?;
-
-    if typed != expected {
+    if !prompt::confirm_typed(
+        &format!("Type '{expected}' to confirm"),
+        &expected,
+        progress.non_interactive,
+    )? {
         println!("Confirmation did not match. Cancelled.");
         return Ok(());
     }
@@ -263,9 +258,12 @@ pub async fn delete(
         OutputFormat::Text => {
             let count = secrets.len();
             if count > 0 {
-                println!("Deleted environment '{name}' and {count} secret(s).");
+                println!(
+                    "{} Deleted environment '{name}' and {count} secret(s).",
+                    style("✔").green()
+                );
             } else {
-                println!("Deleted environment '{name}'.");
+                println!("{} Deleted environment '{name}'.", style("✔").green());
             }
         }
         OutputFormat::Json => {
@@ -378,21 +376,16 @@ pub async fn copy(
         }
     }
 
-    if !force {
-        println!();
-        let confirmed = Confirm::new()
-            .with_prompt(format!(
-                "Copy {} secret(s) from '{from}' to '{to}'?",
-                source_secrets.len()
-            ))
-            .default(false)
-            .interact()
-            .map_err(|e| ZuulError::Config(format!("Failed to read input: {e}")))?;
-
-        if !confirmed {
-            println!("Cancelled.");
-            return Ok(());
-        }
+    if !prompt::confirm(
+        &format!(
+            "Copy {} secret(s) from '{from}' to '{to}'?",
+            source_secrets.len()
+        ),
+        force,
+        progress.non_interactive,
+    )? {
+        println!("Cancelled.");
+        return Ok(());
     }
 
     let pb = progress::progress_bar(source_secrets.len() as u64, progress);
@@ -406,7 +399,8 @@ pub async fn copy(
     match format {
         OutputFormat::Text => {
             println!(
-                "Copied {} secret(s) from '{from}' to '{to}' ({} new, {} overwritten).",
+                "{} Copied {} secret(s) from '{from}' to '{to}' ({} new, {} overwritten).",
+                style("✔").green(),
                 source_secrets.len(),
                 new_count,
                 overwrite_count
@@ -499,21 +493,16 @@ pub async fn clear(
         }
     }
 
-    if !force {
-        println!();
-        let confirmed = Confirm::new()
-            .with_prompt(format!(
-                "Delete all {} secret(s) from environment '{name}'?",
-                secrets.len()
-            ))
-            .default(false)
-            .interact()
-            .map_err(|e| ZuulError::Config(format!("Failed to read input: {e}")))?;
-
-        if !confirmed {
-            println!("Cancelled.");
-            return Ok(());
-        }
+    if !prompt::confirm(
+        &format!(
+            "Delete all {} secret(s) from environment '{name}'?",
+            secrets.len()
+        ),
+        force,
+        progress.non_interactive,
+    )? {
+        println!("Cancelled.");
+        return Ok(());
     }
 
     let pb = progress::progress_bar(secrets.len() as u64, progress);
@@ -527,7 +516,8 @@ pub async fn clear(
     match format {
         OutputFormat::Text => {
             println!(
-                "Cleared {} secret(s) from environment '{name}'.",
+                "{} Cleared {} secret(s) from environment '{name}'.",
+                style("✔").green(),
                 secrets.len()
             );
         }

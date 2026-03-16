@@ -56,19 +56,24 @@ async fn create_backend(config: &Config) -> Result<GcpBackend, ZuulError> {
 }
 
 async fn run(cli: Cli) -> Result<(), ZuulError> {
+    // Respect NO_COLOR env var (https://no-color.org) in addition to --no-color flag.
+    if cli.no_color || std::env::var("NO_COLOR").is_ok() {
+        console::set_colors_enabled(false);
+        console::set_colors_enabled_stderr(false);
+    }
+
     let progress = ProgressOpts {
-        quiet: cli.quiet,
         non_interactive: cli.non_interactive,
     };
 
     match cli.command {
         Command::Init { project, backend } => {
             let cwd = get_cwd()?;
-            init::run(&cwd, project, &backend)?;
+            init::run(&cwd, project, &backend, cli.non_interactive)?;
         }
         Command::Auth { check } => {
             let config = resolve_config(&cli, None)?;
-            auth::run(&config, check).await?;
+            auth::run(&config, check, cli.non_interactive).await?;
         }
         Command::Env { ref command } => {
             let config = resolve_config(&cli, None)?;
@@ -92,11 +97,12 @@ async fn run(cli: Cli) -> Result<(), ZuulError> {
                         new_name.as_deref(),
                         description.as_deref(),
                         &cli.format,
+                        progress,
                     )
                     .await?;
                 }
                 EnvCommand::Delete { name, dry_run } => {
-                    env::delete(&backend, name, *dry_run, &cli.format).await?;
+                    env::delete(&backend, name, *dry_run, &cli.format, progress).await?;
                 }
                 EnvCommand::Copy {
                     from,
@@ -191,12 +197,21 @@ async fn run(cli: Cli) -> Result<(), ZuulError> {
                 } => {
                     let config = resolve_config(&cli, None)?;
                     let backend = create_backend(&config).await?;
-                    metadata::set(&backend, name, env.as_deref(), key, value, cli.quiet).await?;
+                    metadata::set(
+                        &backend,
+                        name,
+                        env.as_deref(),
+                        key,
+                        value,
+                        cli.non_interactive,
+                    )
+                    .await?;
                 }
                 MetadataCommand::Delete { name, key, env } => {
                     let config = resolve_config(&cli, None)?;
                     let backend = create_backend(&config).await?;
-                    metadata::delete(&backend, name, env.as_deref(), key, cli.quiet).await?;
+                    metadata::delete(&backend, name, env.as_deref(), key, cli.non_interactive)
+                        .await?;
                 }
             },
         },

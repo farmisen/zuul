@@ -1,19 +1,20 @@
 use std::process::Command as ProcessCommand;
 
-use dialoguer::Confirm;
+use console::style;
 
 use crate::backend::Backend;
 use crate::backend::gcp::GcpClient;
 use crate::backend::gcp_backend::GcpBackend;
 use crate::config::Config;
 use crate::error::ZuulError;
+use crate::prompt;
 
 /// Run the `zuul auth` command.
 ///
 /// In interactive mode, checks credentials and offers to run
 /// `gcloud auth application-default login` if they are missing.
 /// In `--check` mode, validates silently and returns an error on failure.
-pub async fn run(config: &Config, check: bool) -> Result<(), ZuulError> {
+pub async fn run(config: &Config, check: bool, non_interactive: bool) -> Result<(), ZuulError> {
     let project_id = config.project_id.as_deref().ok_or_else(|| {
         ZuulError::Config(
             "No GCP project ID configured. Run 'zuul init' to set up your project.".to_string(),
@@ -32,13 +33,11 @@ pub async fn run(config: &Config, check: bool) -> Result<(), ZuulError> {
         Err(_) => {
             println!("No valid credentials found.");
 
-            let should_login = Confirm::new()
-                .with_prompt("Run 'gcloud auth application-default login' now?")
-                .default(true)
-                .interact()
-                .map_err(|e| ZuulError::Config(format!("Failed to read input: {e}")))?;
-
-            if !should_login {
+            if !prompt::confirm(
+                "Run 'gcloud auth application-default login' now?",
+                false,
+                non_interactive,
+            )? {
                 return Err(ZuulError::Auth(
                     "Authentication required. Run 'zuul auth' when ready.".to_string(),
                 ));
@@ -74,7 +73,10 @@ async fn print_success(
         return Ok(());
     }
 
-    println!("Authenticated to GCP project '{project_id}'.");
+    println!(
+        "{} Authenticated to GCP project '{project_id}'.",
+        style("✔").green()
+    );
 
     match backend.list_environments().await {
         Ok(envs) if envs.is_empty() => {
