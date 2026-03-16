@@ -152,11 +152,9 @@ impl GcpClient {
             }),
         };
 
-        let response = (|| async { self.client.get().create_secret(request.clone()).await })
-            .retry(retry_policy())
-            .when(is_retryable)
-            .await
-            .map_err(map_status)?;
+        let response =
+            with_timeout(|| async { self.client.get().create_secret(request.clone()).await })
+                .await?;
 
         Ok(response.into_inner())
     }
@@ -167,11 +165,8 @@ impl GcpClient {
             name: self.secret_path(secret_id),
         };
 
-        let response = (|| async { self.client.get().get_secret(request.clone()).await })
-            .retry(retry_policy())
-            .when(is_retryable)
-            .await
-            .map_err(map_status)?;
+        let response =
+            with_timeout(|| async { self.client.get().get_secret(request.clone()).await }).await?;
 
         Ok(response.into_inner())
     }
@@ -183,11 +178,7 @@ impl GcpClient {
             etag: String::new(),
         };
 
-        (|| async { self.client.get().delete_secret(request.clone()).await })
-            .retry(retry_policy())
-            .when(is_retryable)
-            .await
-            .map_err(map_status)?;
+        with_timeout(|| async { self.client.get().delete_secret(request.clone()).await }).await?;
 
         Ok(())
     }
@@ -208,11 +199,9 @@ impl GcpClient {
                 filter: filter.to_string(),
             };
 
-            let response = (|| async { self.client.get().list_secrets(request.clone()).await })
-                .retry(retry_policy())
-                .when(is_retryable)
-                .await
-                .map_err(map_status)?;
+            let response =
+                with_timeout(|| async { self.client.get().list_secrets(request.clone()).await })
+                    .await?;
 
             let inner = response.into_inner();
             all_secrets.extend(inner.secrets);
@@ -244,11 +233,8 @@ impl GcpClient {
             }),
         };
 
-        (|| async { self.client.get().add_secret_version(request.clone()).await })
-            .retry(retry_policy())
-            .when(is_retryable)
-            .await
-            .map_err(map_status)?;
+        with_timeout(|| async { self.client.get().add_secret_version(request.clone()).await })
+            .await?;
 
         Ok(())
     }
@@ -263,16 +249,13 @@ impl GcpClient {
             name: self.secret_version_path(secret_id),
         };
 
-        let response = (|| async {
+        let response = with_timeout(|| async {
             self.client
                 .get()
                 .access_secret_version(request.clone())
                 .await
         })
-        .retry(retry_policy())
-        .when(is_retryable)
-        .await
-        .map_err(map_status)?;
+        .await?;
 
         let inner = response.into_inner();
         let version_name = inner.name.clone();
@@ -314,11 +297,9 @@ impl GcpClient {
             update_mask: Some(FieldMask { paths }),
         };
 
-        let response = (|| async { self.client.get().update_secret(request.clone()).await })
-            .retry(retry_policy())
-            .when(is_retryable)
-            .await
-            .map_err(map_status)?;
+        let response =
+            with_timeout(|| async { self.client.get().update_secret(request.clone()).await })
+                .await?;
 
         Ok(response.into_inner())
     }
@@ -334,16 +315,44 @@ fn map_status(status: gcloud_sdk::tonic::Status) -> ZuulError {
         Code::PermissionDenied => ZuulError::PermissionDenied {
             resource: status.message().to_string(),
         },
-        Code::Unauthenticated => {
-            ZuulError::Auth(format!("Authentication failed: {}.", status.message()))
-        }
+        Code::Unauthenticated => ZuulError::Auth(
+            "Authentication expired. Run `gcloud auth application-default login` to re-authenticate.".to_string(),
+        ),
+        Code::DeadlineExceeded => ZuulError::Backend(
+            "Request timed out. Check your network connection and try again.".to_string(),
+        ),
+        Code::ResourceExhausted => ZuulError::Backend(
+            "GCP rate limit exceeded. Wait a moment and try again, or check your quota at https://console.cloud.google.com/iam-admin/quotas.".to_string(),
+        ),
         _ => ZuulError::Backend(format!("{}: {}", status.code(), status.message())),
     }
 }
 
 /// Returns true if the gRPC status code is transient and worth retrying.
 fn is_retryable(status: &gcloud_sdk::tonic::Status) -> bool {
-    matches!(status.code(), Code::Unavailable | Code::ResourceExhausted)
+    matches!(
+        status.code(),
+        Code::Unavailable | Code::ResourceExhausted | Code::DeadlineExceeded
+    )
+}
+
+/// Timeout for individual GCP API calls (including retries).
+const API_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Run a retryable GCP operation with a timeout.
+async fn with_timeout<F, Fut, T>(op: F) -> Result<T, ZuulError>
+where
+    F: FnMut() -> Fut + Clone,
+    Fut: std::future::Future<Output = Result<T, gcloud_sdk::tonic::Status>>,
+{
+    tokio::time::timeout(API_TIMEOUT, op.retry(retry_policy()).when(is_retryable))
+        .await
+        .map_err(|_| {
+            ZuulError::Backend(
+                "Request timed out. Check your network connection and try again.".to_string(),
+            )
+        })?
+        .map_err(map_status)
 }
 
 #[cfg(test)]
@@ -390,9 +399,42 @@ mod tests {
         let err = map_status(status);
         match &err {
             ZuulError::Auth(msg) => {
-                assert!(msg.contains("expired token"));
+                assert!(
+                    msg.contains("gcloud auth application-default login"),
+                    "should suggest re-auth command, got: {msg}"
+                );
             }
             other => panic!("expected Auth, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn map_status_deadline_exceeded() {
+        let status = gcloud_sdk::tonic::Status::new(Code::DeadlineExceeded, "timed out");
+        let err = map_status(status);
+        match &err {
+            ZuulError::Backend(msg) => {
+                assert!(
+                    msg.contains("timed out") || msg.contains("timeout"),
+                    "should mention timeout, got: {msg}"
+                );
+            }
+            other => panic!("expected Backend, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn map_status_resource_exhausted() {
+        let status = gcloud_sdk::tonic::Status::resource_exhausted("quota exceeded");
+        let err = map_status(status);
+        match &err {
+            ZuulError::Backend(msg) => {
+                assert!(
+                    msg.contains("rate limit") || msg.contains("quota"),
+                    "should mention rate limit, got: {msg}"
+                );
+            }
+            other => panic!("expected Backend, got {other:?}"),
         }
     }
 
@@ -419,6 +461,12 @@ mod tests {
     #[test]
     fn retryable_resource_exhausted() {
         let status = gcloud_sdk::tonic::Status::resource_exhausted("rate limited");
+        assert!(is_retryable(&status));
+    }
+
+    #[test]
+    fn retryable_deadline_exceeded() {
+        let status = gcloud_sdk::tonic::Status::new(Code::DeadlineExceeded, "timed out");
         assert!(is_retryable(&status));
     }
 

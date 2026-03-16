@@ -180,6 +180,7 @@ impl Backend for GcpBackend {
     }
 
     async fn get_environment(&self, name: &str) -> Result<Environment, ZuulError> {
+        validate_environment_name(name).map_err(ZuulError::Validation)?;
         let registry = self.read_registry().await?;
 
         registry
@@ -244,6 +245,7 @@ impl Backend for GcpBackend {
     }
 
     async fn delete_environment(&self, name: &str) -> Result<(), ZuulError> {
+        validate_environment_name(name).map_err(ZuulError::Validation)?;
         let mut registry = self.read_registry().await?;
 
         if !registry.environments.contains_key(name) {
@@ -274,6 +276,9 @@ impl Backend for GcpBackend {
     // --- Secret operations ---
 
     async fn list_secrets(&self, environment: Option<&str>) -> Result<Vec<SecretEntry>, ZuulError> {
+        if let Some(env) = environment {
+            validate_environment_name(env).map_err(ZuulError::Validation)?;
+        }
         let filter = match environment {
             Some(env) => format!("labels.zuul-managed=true AND labels.zuul-env={env}"),
             None => "labels.zuul-managed=true".to_string(),
@@ -311,6 +316,7 @@ impl Backend for GcpBackend {
     }
 
     async fn get_secret(&self, name: &str, environment: &str) -> Result<SecretValue, ZuulError> {
+        validate_secret_name(name).map_err(ZuulError::Validation)?;
         self.ensure_environment_exists(environment).await?;
 
         let secret_id = Self::secret_id(environment, name);
@@ -392,6 +398,7 @@ impl Backend for GcpBackend {
     }
 
     async fn delete_secret(&self, name: &str, environment: &str) -> Result<(), ZuulError> {
+        validate_secret_name(name).map_err(ZuulError::Validation)?;
         self.ensure_environment_exists(environment).await?;
 
         let secret_id = Self::secret_id(environment, name);
@@ -416,6 +423,7 @@ impl Backend for GcpBackend {
         name: &str,
         environment: &str,
     ) -> Result<HashMap<String, String>, ZuulError> {
+        validate_secret_name(name).map_err(ZuulError::Validation)?;
         self.ensure_environment_exists(environment).await?;
 
         let secret_id = Self::secret_id(environment, name);
