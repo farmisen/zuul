@@ -21,7 +21,7 @@ pub struct Environment {
 pub struct SecretEntry {
     pub name: String,
     pub environments: Vec<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub metadata: HashMap<String, String>,
 }
 

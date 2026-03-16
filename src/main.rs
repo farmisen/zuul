@@ -122,11 +122,17 @@ async fn run(cli: Cli) -> Result<(), ZuulError> {
             }
         }
         Command::Secret { ref command } => match command {
-            SecretCommand::List { env } => {
+            SecretCommand::List { env, with_metadata } => {
                 let config = resolve_config(&cli, env.as_deref())?;
                 let backend = create_backend(&config).await?;
-                let env = config.default_environment.as_deref();
-                secret::list(&backend, env, &cli.format, progress).await?;
+                secret::list(
+                    &backend,
+                    env.as_deref(),
+                    *with_metadata,
+                    &cli.format,
+                    progress,
+                )
+                .await?;
             }
             SecretCommand::Get { name, env } => {
                 let config = resolve_config(&cli, env.as_deref())?;

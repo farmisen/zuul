@@ -21,10 +21,25 @@ pub fn require_env(env: Option<&str>) -> Result<&str, ZuulError> {
     })
 }
 
+/// Format a metadata map as `key=val, key2=val2` with sorted keys.
+fn format_metadata(meta: &std::collections::HashMap<String, String>) -> String {
+    if meta.is_empty() {
+        return String::new();
+    }
+    let mut pairs: Vec<_> = meta.iter().collect();
+    pairs.sort_by_key(|(k, _)| *k);
+    pairs
+        .iter()
+        .map(|(k, v)| format!("{k}={v}"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 /// Run `zuul secret list`.
 pub async fn list(
     backend: &GcpBackend,
     env: Option<&str>,
+    with_metadata: bool,
     format: &OutputFormat,
     progress: ProgressOpts,
 ) -> Result<(), ZuulError> {
@@ -40,22 +55,133 @@ pub async fn list(
         return Ok(());
     }
 
-    match format {
-        OutputFormat::Text => {
-            let mut table = Table::new();
-            table.set_content_arrangement(ContentArrangement::Dynamic);
-            table.set_header(vec!["NAME", "ENVIRONMENTS"]);
-
-            for secret in &secrets {
-                table.add_row(vec![secret.name.clone(), secret.environments.join(", ")]);
+    if !with_metadata {
+        match format {
+            OutputFormat::Text => {
+                let mut table = Table::new();
+                table.set_content_arrangement(ContentArrangement::Dynamic);
+                table.set_header(vec!["NAME", "ENVIRONMENTS"]);
+                for secret in &secrets {
+                    table.add_row(vec![secret.name.clone(), secret.environments.join(", ")]);
+                }
+                println!("{table}");
             }
-
-            println!("{table}");
+            OutputFormat::Json => {
+                let json = serde_json::to_string_pretty(&secrets)
+                    .map_err(|e| ZuulError::Backend(format!("Failed to serialize: {e}")))?;
+                println!("{json}");
+            }
         }
-        OutputFormat::Json => {
-            let json = serde_json::to_string_pretty(&secrets)
-                .map_err(|e| ZuulError::Backend(format!("Failed to serialize: {e}")))?;
-            println!("{json}");
+        return Ok(());
+    }
+
+    // with_metadata is true — fetch metadata per secret per environment.
+    let sp = progress::spinner("Fetching metadata...", progress);
+
+    if let Some(environment) = env {
+        // Single env: one METADATA column.
+        let mut meta_per_secret: Vec<std::collections::HashMap<String, String>> =
+            Vec::with_capacity(secrets.len());
+        for secret in &secrets {
+            meta_per_secret.push(backend.get_metadata(&secret.name, environment).await?);
+        }
+        sp.finish_and_clear();
+
+        match format {
+            OutputFormat::Text => {
+                let mut table = Table::new();
+                table.set_content_arrangement(ContentArrangement::Dynamic);
+                table.set_header(vec!["NAME", "ENVIRONMENTS", "METADATA"]);
+                for (secret, meta) in secrets.iter().zip(&meta_per_secret) {
+                    table.add_row(vec![
+                        secret.name.clone(),
+                        secret.environments.join(", "),
+                        format_metadata(meta),
+                    ]);
+                }
+                println!("{table}");
+            }
+            OutputFormat::Json => {
+                let entries: Vec<serde_json::Value> = secrets
+                    .iter()
+                    .zip(&meta_per_secret)
+                    .map(|(secret, meta)| {
+                        serde_json::json!({
+                            "name": secret.name,
+                            "environments": secret.environments,
+                            "metadata": meta,
+                        })
+                    })
+                    .collect();
+                let json = serde_json::to_string_pretty(&entries)
+                    .map_err(|e| ZuulError::Backend(format!("Failed to serialize: {e}")))?;
+                println!("{json}");
+            }
+        }
+    } else {
+        // All envs: collect unique env names, one metadata column per env.
+        let mut all_envs: Vec<String> = secrets
+            .iter()
+            .flat_map(|s| s.environments.iter().cloned())
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        all_envs.sort();
+
+        // Fetch metadata for each (secret, env) pair.
+        let mut meta_map: Vec<
+            std::collections::HashMap<String, std::collections::HashMap<String, String>>,
+        > = Vec::with_capacity(secrets.len());
+        for secret in &secrets {
+            let mut env_meta = std::collections::HashMap::new();
+            for e in &secret.environments {
+                let m = backend.get_metadata(&secret.name, e).await?;
+                if !m.is_empty() {
+                    env_meta.insert(e.clone(), m);
+                }
+            }
+            meta_map.push(env_meta);
+        }
+        sp.finish_and_clear();
+
+        match format {
+            OutputFormat::Text => {
+                let mut table = Table::new();
+                table.set_content_arrangement(ContentArrangement::Dynamic);
+                let mut header = vec!["NAME".to_string(), "ENVIRONMENTS".to_string()];
+                header.extend(all_envs.iter().cloned());
+                table.set_header(header);
+
+                for (secret, env_meta) in secrets.iter().zip(&meta_map) {
+                    let mut row = vec![secret.name.clone(), secret.environments.join(", ")];
+                    for e in &all_envs {
+                        row.push(
+                            env_meta
+                                .get(e)
+                                .map(format_metadata)
+                                .unwrap_or_default(),
+                        );
+                    }
+                    table.add_row(row);
+                }
+                println!("{table}");
+            }
+            OutputFormat::Json => {
+                let entries: Vec<serde_json::Value> = secrets
+                    .iter()
+                    .zip(&meta_map)
+                    .map(|(secret, env_meta)| {
+                        serde_json::json!({
+                            "name": secret.name,
+                            "environments": secret.environments,
+                            "metadata": env_meta,
+                        })
+                    })
+                    .collect();
+                let json = serde_json::to_string_pretty(&entries)
+                    .map_err(|e| ZuulError::Backend(format!("Failed to serialize: {e}")))?;
+                println!("{json}");
+            }
         }
     }
 

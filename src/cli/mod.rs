@@ -238,6 +238,10 @@ pub enum SecretCommand {
         /// Target environment (overrides default from config)
         #[arg(short, long)]
         env: Option<String>,
+
+        /// Include metadata for each secret
+        #[arg(long)]
+        with_metadata: bool,
     },
 
     /// Get a secret's value
