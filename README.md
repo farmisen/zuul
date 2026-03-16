@@ -109,17 +109,33 @@ Use `zuul --help` or `zuul <command> --help` for details.
 # Build
 cargo build
 
-# Run tests
-cargo test
-
-# Run E2E tests (requires Docker)
-docker compose -f docker-compose.emulator.yml up -d
-cargo test --test e2e -- --ignored
-
 # Lint and format
 cargo clippy -- -D warnings
 cargo fmt
 ```
+
+### Running Tests
+
+**Unit tests** run without any external dependencies:
+
+```bash
+cargo test
+```
+
+**Integration tests** run against a GCP Secret Manager emulator and cover all commands, options, and access control logic:
+
+```bash
+# Start the emulator
+docker compose -f docker-compose.emulator.yml up -d
+
+# Run the integration suite (80 tests)
+cargo test --test integration -- --ignored
+
+# Stop the emulator when done
+docker compose -f docker-compose.emulator.yml down
+```
+
+The emulator state is in-memory — restart it for a clean slate between runs. Each test uses a unique project ID, so re-runs within the same emulator session are safe.
 
 ## Documentation
 

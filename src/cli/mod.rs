@@ -187,12 +187,20 @@ pub enum EnvCommand {
         /// New description
         #[arg(long)]
         description: Option<String>,
+
+        /// Skip confirmation prompt
+        #[arg(long)]
+        force: bool,
     },
 
     /// Delete an environment
     Delete {
         /// Environment name
         name: String,
+
+        /// Skip confirmation prompt
+        #[arg(long)]
+        force: bool,
 
         /// Preview what would be deleted without making changes
         #[arg(long)]

@@ -155,12 +155,7 @@ pub async fn list(
                 for (secret, env_meta) in secrets.iter().zip(&meta_map) {
                     let mut row = vec![secret.name.clone(), secret.environments.join(", ")];
                     for e in &all_envs {
-                        row.push(
-                            env_meta
-                                .get(e)
-                                .map(format_metadata)
-                                .unwrap_or_default(),
-                        );
+                        row.push(env_meta.get(e).map(format_metadata).unwrap_or_default());
                     }
                     table.add_row(row);
                 }

@@ -90,19 +90,25 @@ async fn run(cli: Cli) -> Result<(), ZuulError> {
                     name,
                     new_name,
                     description,
+                    force,
                 } => {
                     env::update(
                         &backend,
                         name,
                         new_name.as_deref(),
                         description.as_deref(),
+                        *force,
                         &cli.format,
                         progress,
                     )
                     .await?;
                 }
-                EnvCommand::Delete { name, dry_run } => {
-                    env::delete(&backend, name, *dry_run, &cli.format, progress).await?;
+                EnvCommand::Delete {
+                    name,
+                    force,
+                    dry_run,
+                } => {
+                    env::delete(&backend, name, *force, *dry_run, &cli.format, progress).await?;
                 }
                 EnvCommand::Copy {
                     from,

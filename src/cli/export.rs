@@ -24,6 +24,9 @@ pub async fn run(
     no_local: bool,
     progress: ProgressOpts,
 ) -> Result<(), ZuulError> {
+    // Verify environment exists
+    backend.get_environment(env).await?;
+
     // Fetch all secrets for the environment
     let sp = progress::spinner("Fetching secrets...", progress);
     let backend_secrets = backend.list_secrets_for_environment(env).await?;

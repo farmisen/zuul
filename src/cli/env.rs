@@ -133,6 +133,7 @@ pub async fn update(
     name: &str,
     new_name: Option<&str>,
     new_description: Option<&str>,
+    force: bool,
     format: &OutputFormat,
     progress: ProgressOpts,
 ) -> Result<(), ZuulError> {
@@ -150,7 +151,7 @@ pub async fn update(
                 "Renaming '{name}' to '{target}' will rename {} secret(s).",
                 secrets.len()
             );
-            if !prompt::confirm("Continue?", false, progress.non_interactive)? {
+            if !prompt::confirm("Continue?", force, progress.non_interactive)? {
                 println!("Cancelled.");
                 return Ok(());
             }
@@ -181,6 +182,7 @@ pub async fn update(
 pub async fn delete(
     backend: &GcpBackend,
     name: &str,
+    force: bool,
     dry_run: bool,
     format: &OutputFormat,
     progress: ProgressOpts,
@@ -234,22 +236,24 @@ pub async fn delete(
     println!();
     if !prompt::confirm(
         "Are you sure you want to delete this environment?",
-        false,
+        force,
         progress.non_interactive,
     )? {
         println!("Cancelled.");
         return Ok(());
     }
 
-    // Step 2: Type "delete <name>" to confirm
-    let expected = format!("delete {name}");
-    if !prompt::confirm_typed(
-        &format!("Type '{expected}' to confirm"),
-        &expected,
-        progress.non_interactive,
-    )? {
-        println!("Confirmation did not match. Cancelled.");
-        return Ok(());
+    // Step 2: Type "delete <name>" to confirm (skipped when --force)
+    if !force {
+        let expected = format!("delete {name}");
+        if !prompt::confirm_typed(
+            &format!("Type '{expected}' to confirm"),
+            &expected,
+            progress.non_interactive,
+        )? {
+            println!("Confirmation did not match. Cancelled.");
+            return Ok(());
+        }
     }
 
     backend.delete_environment(name).await?;
