@@ -11,7 +11,7 @@ use zuul::cli::{
 };
 use zuul::config::{CliOverrides, Config, load_config};
 use zuul::error::ZuulError;
-use zuul::progress::ProgressOpts;
+use zuul::progress::{BatchContext, ProgressOpts};
 
 #[tokio::main]
 async fn main() {
@@ -92,6 +92,10 @@ async fn run(cli: Cli) -> Result<(), ZuulError> {
                     description,
                     force,
                 } => {
+                    let ctx = BatchContext {
+                        progress,
+                        project_root: config.config_dir.clone(),
+                    };
                     env::update(
                         &backend,
                         name,
@@ -99,7 +103,7 @@ async fn run(cli: Cli) -> Result<(), ZuulError> {
                         description.as_deref(),
                         *force,
                         &cli.format,
-                        progress,
+                        &ctx,
                     )
                     .await?;
                 }
@@ -108,7 +112,11 @@ async fn run(cli: Cli) -> Result<(), ZuulError> {
                     force,
                     dry_run,
                 } => {
-                    env::delete(&backend, name, *force, *dry_run, &cli.format, progress).await?;
+                    let ctx = BatchContext {
+                        progress,
+                        project_root: config.config_dir.clone(),
+                    };
+                    env::delete(&backend, name, *force, *dry_run, &cli.format, &ctx).await?;
                 }
                 EnvCommand::Copy {
                     from,
@@ -268,6 +276,10 @@ async fn run(cli: Cli) -> Result<(), ZuulError> {
             let config = resolve_config(&cli, env.as_deref())?;
             let backend = create_backend(&config).await?;
             let env = secret::require_env(config.default_environment.as_deref())?;
+            let ctx = BatchContext {
+                progress,
+                project_root: config.config_dir.clone(),
+            };
             import::run(
                 &backend,
                 env,
@@ -275,7 +287,7 @@ async fn run(cli: Cli) -> Result<(), ZuulError> {
                 import_format.as_ref(),
                 overwrite,
                 dry_run,
-                progress,
+                &ctx,
             )
             .await?;
         }

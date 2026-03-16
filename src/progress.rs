@@ -1,4 +1,5 @@
 use std::io::IsTerminal;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use indicatif::{ProgressBar, ProgressStyle};
@@ -7,6 +8,21 @@ use indicatif::{ProgressBar, ProgressStyle};
 #[derive(Debug, Clone, Copy)]
 pub struct ProgressOpts {
     pub non_interactive: bool,
+}
+
+/// Context for batch operations that need both progress display and
+/// journal support (crash recovery via `.zuul/journal.json`).
+#[derive(Debug, Clone)]
+pub struct BatchContext {
+    pub progress: ProgressOpts,
+    pub project_root: Option<PathBuf>,
+}
+
+impl BatchContext {
+    /// Convenience accessor for the project root as a `&Path`.
+    pub fn root(&self) -> Option<&Path> {
+        self.project_root.as_deref()
+    }
 }
 
 impl ProgressOpts {

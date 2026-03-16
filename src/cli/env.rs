@@ -4,7 +4,8 @@ use console::style;
 use crate::backend::Backend;
 use crate::cli::OutputFormat;
 use crate::error::ZuulError;
-use crate::progress::{self, ProgressOpts};
+use crate::journal;
+use crate::progress::{self, BatchContext, ProgressOpts};
 use crate::prompt;
 
 /// Run `zuul env list`.
@@ -134,7 +135,7 @@ pub async fn update(
     new_description: Option<&str>,
     force: bool,
     format: &OutputFormat,
-    progress: ProgressOpts,
+    ctx: &BatchContext,
 ) -> Result<(), ZuulError> {
     if new_name.is_none() && new_description.is_none() {
         return Err(ZuulError::Validation(
@@ -150,29 +151,137 @@ pub async fn update(
                 "Renaming '{name}' to '{target}' will rename {} secret(s).",
                 secrets.len()
             );
-            if !prompt::confirm("Continue?", force, progress.non_interactive)? {
+            if !prompt::confirm("Continue?", force, ctx.progress.non_interactive)? {
                 println!("Cancelled.");
                 return Ok(());
             }
         }
+
+        // Three-phase rename:
+        // 1. Create new env in registry (so set_secret can find it)
+        // 2. Move each secret from old env to new env
+        // 3. Delete old env from registry (no secrets remain)
+        let old_env = backend.get_environment(name).await?;
+        let desc = new_description.map(String::from).or(old_env.description);
+        backend.create_environment(target, desc.as_deref()).await?;
+
+        if !secrets.is_empty() {
+            rename_secrets(backend, name, target, &secrets, ctx).await?;
+        }
+
+        let sp = progress::spinner("Updating registry...", ctx.progress);
+        backend.delete_environment(name).await?;
+        sp.finish_and_clear();
+
+        // Clean up journal.
+        if let Some(root) = ctx.root()
+            && let Some(mut jrnl) = journal::load_journal(root)?
+        {
+            if let Some(idx) = jrnl.first_pending() {
+                jrnl.mark_completed(idx);
+            }
+            journal::delete_journal(root)?;
+        }
+
+        let env = backend.get_environment(target).await?;
+        match format {
+            OutputFormat::Text => {
+                println!("{} Updated environment '{}'.", style("✔").green(), env.name);
+            }
+            OutputFormat::Json => {
+                let json = serde_json::to_string_pretty(&env)
+                    .map_err(|e| ZuulError::Backend(format!("Failed to serialize: {e}")))?;
+                println!("{json}");
+            }
+        }
+    } else {
+        // Description-only update, no renaming needed.
+        let sp = progress::spinner("Updating environment...", ctx.progress);
+        let env = backend
+            .update_environment(name, new_name, new_description)
+            .await?;
+        sp.finish_and_clear();
+
+        match format {
+            OutputFormat::Text => {
+                println!("{} Updated environment '{}'.", style("✔").green(), env.name);
+            }
+            OutputFormat::Json => {
+                let json = serde_json::to_string_pretty(&env)
+                    .map_err(|e| ZuulError::Backend(format!("Failed to serialize: {e}")))?;
+                println!("{json}");
+            }
+        }
     }
 
-    let sp = progress::spinner("Updating environment...", progress);
-    let env = backend
-        .update_environment(name, new_name, new_description)
-        .await?;
-    sp.finish_and_clear();
+    Ok(())
+}
 
-    match format {
-        OutputFormat::Text => {
-            println!("{} Updated environment '{}'.", style("✔").green(), env.name);
-        }
-        OutputFormat::Json => {
-            let json = serde_json::to_string_pretty(&env)
-                .map_err(|e| ZuulError::Backend(format!("Failed to serialize: {e}")))?;
-            println!("{json}");
-        }
+/// Rename all secrets from one environment to another.
+///
+/// For each secret: copies the value and metadata to the new environment name,
+/// then deletes the old one. Uses a journal for crash recovery — if interrupted,
+/// `zuul recover resume` can pick up where it left off.
+async fn rename_secrets(
+    backend: &impl Backend,
+    old_env: &str,
+    new_env: &str,
+    secrets: &[crate::models::SecretEntry],
+    ctx: &BatchContext,
+) -> Result<(), ZuulError> {
+    // Set up journal if project root is available.
+    if let Some(root) = ctx.root() {
+        journal::check_lock(root)?;
+
+        let mut steps: Vec<journal::JournalStep> = secrets
+            .iter()
+            .map(|s| journal::step("rename_secret", &s.name))
+            .collect();
+        steps.push(journal::step("delete_old_environment", old_env));
+
+        let jrnl = journal::Journal::new(
+            journal::OperationType::EnvRename,
+            serde_json::json!({
+                "old_name": old_env,
+                "new_name": new_env,
+            }),
+            steps,
+        );
+        journal::save_journal(root, &jrnl)?;
     }
+
+    let pb = progress::progress_bar(secrets.len() as u64, ctx.progress);
+    for (i, secret) in secrets.iter().enumerate() {
+        pb.set_message(format!("Renaming '{}'...", secret.name));
+
+        // Copy value to new environment name.
+        let value = backend.get_secret(&secret.name, old_env).await?;
+        backend
+            .set_secret(&secret.name, new_env, &value.value)
+            .await?;
+
+        // Copy metadata to new environment name.
+        let metadata = backend.get_metadata(&secret.name, old_env).await?;
+        for (key, val) in &metadata {
+            backend
+                .set_metadata(&secret.name, new_env, key, val)
+                .await?;
+        }
+
+        // Delete from old environment.
+        backend.delete_secret(&secret.name, old_env).await?;
+
+        // Flush journal progress.
+        if let Some(root) = ctx.root()
+            && let Some(mut jrnl) = journal::load_journal(root)?
+        {
+            jrnl.mark_completed(i);
+            journal::save_journal(root, &jrnl)?;
+        }
+
+        pb.inc(1);
+    }
+    pb.finish_and_clear();
 
     Ok(())
 }
@@ -184,7 +293,7 @@ pub async fn delete(
     force: bool,
     dry_run: bool,
     format: &OutputFormat,
-    progress: ProgressOpts,
+    ctx: &BatchContext,
 ) -> Result<(), ZuulError> {
     // Verify environment exists before showing confirmation.
     backend.get_environment(name).await?;
@@ -236,7 +345,7 @@ pub async fn delete(
     if !prompt::confirm(
         "Are you sure you want to delete this environment?",
         force,
-        progress.non_interactive,
+        ctx.progress.non_interactive,
     )? {
         println!("Cancelled.");
         return Ok(());
@@ -248,14 +357,48 @@ pub async fn delete(
         if !prompt::confirm_typed(
             &format!("Type '{expected}' to confirm"),
             &expected,
-            progress.non_interactive,
+            ctx.progress.non_interactive,
         )? {
             println!("Confirmation did not match. Cancelled.");
             return Ok(());
         }
     }
 
-    backend.delete_environment(name).await?;
+    // Use journal for crash-recoverable deletion when project root is available
+    // and there are secrets to delete (otherwise a single backend call suffices).
+    if let Some(root) = ctx.root().filter(|_| !secrets.is_empty()) {
+        journal::check_lock(root)?;
+
+        let mut steps: Vec<journal::JournalStep> = secrets
+            .iter()
+            .map(|s| journal::step("delete_secret", &format!("zuul__{name}__{}", s.name)))
+            .collect();
+        steps.push(journal::step_no_target("update_registry"));
+
+        let mut jrnl = journal::Journal::new(
+            journal::OperationType::EnvDelete,
+            serde_json::json!({ "environment": name }),
+            steps,
+        );
+        journal::save_journal(root, &jrnl)?;
+
+        let pb = progress::progress_bar(secrets.len() as u64, ctx.progress);
+        for (i, secret) in secrets.iter().enumerate() {
+            pb.set_message(format!("Deleting '{}'...", secret.name));
+            backend.delete_secret(&secret.name, name).await?;
+            jrnl.mark_completed(i);
+            journal::save_journal(root, &jrnl)?;
+            pb.inc(1);
+        }
+        pb.finish_and_clear();
+
+        // Final step: remove environment from registry.
+        backend.delete_environment(name).await?;
+        jrnl.mark_completed(secrets.len());
+        journal::delete_journal(root)?;
+    } else {
+        backend.delete_environment(name).await?;
+    }
 
     match format {
         OutputFormat::Text => {

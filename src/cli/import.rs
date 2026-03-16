@@ -7,7 +7,8 @@ use console::style;
 use crate::backend::Backend;
 use crate::cli::ImportFormat;
 use crate::error::ZuulError;
-use crate::progress::{self, ProgressOpts};
+use crate::journal;
+use crate::progress::{self, BatchContext};
 
 /// Run `zuul import`.
 ///
@@ -20,7 +21,7 @@ pub async fn run(
     format: Option<&ImportFormat>,
     overwrite: bool,
     dry_run: bool,
-    progress: ProgressOpts,
+    ctx: &BatchContext,
 ) -> Result<(), ZuulError> {
     // Resolve format: explicit flag or auto-detect from extension
     let resolved_format = match format {
@@ -40,7 +41,7 @@ pub async fn run(
     }
 
     // Fetch existing secrets for this environment to detect collisions
-    let sp = progress::spinner("Checking existing secrets...", progress);
+    let sp = progress::spinner("Checking existing secrets...", ctx.progress);
     let existing: HashMap<String, ()> = backend
         .list_secrets(Some(env))
         .await?
@@ -49,11 +50,42 @@ pub async fn run(
         .collect();
     sp.finish_and_clear();
 
+    if dry_run {
+        return run_dry(env, &secrets, &existing, overwrite);
+    }
+
+    // Determine which secrets will actually be imported (skip existing unless overwrite).
+    let actionable: Vec<&(String, String)> = secrets
+        .iter()
+        .filter(|(name, _)| overwrite || !existing.contains_key(name))
+        .collect();
+
+    // Set up journal for progress tracking if project root is available.
+    let use_journal = ctx.root().is_some() && !actionable.is_empty();
+    if let Some(root) = ctx.root().filter(|_| !actionable.is_empty()) {
+        journal::check_lock(root)?;
+
+        let steps: Vec<journal::JournalStep> = actionable
+            .iter()
+            .map(|(name, _)| journal::step("set_secret", name))
+            .collect();
+        let jrnl = journal::Journal::new(
+            journal::OperationType::Import,
+            serde_json::json!({
+                "environment": env,
+                "file": file.display().to_string(),
+            }),
+            steps,
+        );
+        journal::save_journal(root, &jrnl)?;
+    }
+
     let mut created = 0u32;
     let mut overwritten = 0u32;
     let mut skipped = 0u32;
+    let mut journal_idx = 0usize;
 
-    let pb = progress::progress_bar(secrets.len() as u64, progress);
+    let pb = progress::progress_bar(secrets.len() as u64, ctx.progress);
     for (name, value) in &secrets {
         let exists = existing.contains_key(name);
 
@@ -66,32 +98,78 @@ pub async fn run(
             continue;
         }
 
-        if dry_run {
-            if exists {
-                println!("  overwrite: {name}");
-                overwritten += 1;
-            } else {
-                println!("  create: {name}");
-                created += 1;
-            }
+        pb.set_message(name.clone());
+        backend.set_secret(name, env, value).await?;
+
+        if exists {
+            overwritten += 1;
         } else {
-            pb.set_message(name.clone());
-            backend.set_secret(name, env, value).await?;
-            if exists {
-                overwritten += 1;
-            } else {
-                created += 1;
-            }
+            created += 1;
         }
+
+        // Flush journal progress.
+        if use_journal
+            && let Some(root) = ctx.root()
+            && let Some(mut jrnl) = journal::load_journal(root)?
+        {
+            jrnl.mark_completed(journal_idx);
+            journal::save_journal(root, &jrnl)?;
+        }
+        if use_journal {
+            journal_idx += 1;
+        }
+
         pb.inc(1);
     }
     pb.finish_and_clear();
 
+    // Clean up journal on success.
+    if use_journal && let Some(root) = ctx.root() {
+        journal::delete_journal(root)?;
+    }
+
     // Summary
     let total = created + overwritten;
-    let action = if dry_run { "Would import" } else { "Imported" };
     println!(
-        "{} {action} {total} secrets ({skipped} skipped, {overwritten} overwritten) into environment '{env}'.",
+        "{} Imported {total} secrets ({skipped} skipped, {overwritten} overwritten) into environment '{env}'.",
+        style("✔").green()
+    );
+
+    Ok(())
+}
+
+/// Handle `--dry-run` for import: print what would happen without touching the backend.
+fn run_dry(
+    env: &str,
+    secrets: &[(String, String)],
+    existing: &HashMap<String, ()>,
+    overwrite: bool,
+) -> Result<(), ZuulError> {
+    let mut created = 0u32;
+    let mut overwritten = 0u32;
+    let mut skipped = 0u32;
+
+    for (name, _) in secrets {
+        let exists = existing.contains_key(name);
+        if exists && !overwrite {
+            skipped += 1;
+            eprintln!(
+                "Warning: secret '{name}' already exists, skipping (use --overwrite to replace)"
+            );
+            continue;
+        }
+        if exists {
+            println!("  overwrite: {name}");
+            overwritten += 1;
+        } else {
+            println!("  create: {name}");
+            created += 1;
+        }
+    }
+
+    let total = created + overwritten;
+    println!(
+        "{} Would import {total} secrets ({skipped} skipped, {overwritten} overwritten) into environment '{env}'.",
         style("✔").green()
     );
 

@@ -28,3 +28,11 @@ toml = "1"
 [dev-dependencies]
 serial_test = "3"
 tempfile = "3"
+
+[[test]]
+name = "gcp_emulator"
+path = "tests/integration/gcp_emulator/main.rs"
+
+[[test]]
+name = "mock_backend"
+path = "tests/integration/mock_backend/main.rs"

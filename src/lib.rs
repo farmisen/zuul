@@ -3,6 +3,7 @@ pub mod cli;
 pub mod config;
 pub mod error;
 pub mod export;
+pub mod journal;
 pub mod models;
 pub mod progress;
 pub mod prompt;
