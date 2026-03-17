@@ -65,112 +65,14 @@ trait Backend {
 
 **Environment management** (`create_environment`, `update_environment`, `delete_environment`) is backend-dependent. Backends that delegate environment lifecycle to external tools (e.g., GCP + Terraform) return an actionable error directing the user to the appropriate tool. Backends that manage their own state (e.g., file) implement these methods directly.
 
-### 3.2 File Backend
+### 3.2 Backend Implementations
 
-The file backend stores all environments, secrets, and metadata in a single encrypted JSON file using `age` passphrase encryption. Designed for local development, small projects, and offline use.
+| Backend | Config `type` | Docs |
+|---------|--------------|------|
+| File (encrypted local storage) | `file` | [backend-file.md](backend-file.md) |
+| GCP Secret Manager | `gcp-secret-manager` | [backend-gcp.md](backend-gcp.md) |
 
-- **Storage**: single file (default: `.zuul.secrets.enc`) containing the full store
-- **Encryption**: `age` crate with passphrase-based encryption (scrypt key derivation)
-- **Passphrase resolution**: `ZUUL_PASSPHRASE` env var → interactive prompt
-- **Concurrency**: file locking via `flock` prevents concurrent corruption
-- **Environment management**: fully self-contained — `zuul env create/update/delete` work directly
-
-```toml
-[backend]
-type = "file"
-# path = ".zuul.secrets.enc"    # default
-```
-
-### 3.3 GCP Secret Manager Backend
-
-#### Naming Convention
-
-Each zuul-managed secret maps to one GCP Secret Manager secret using the pattern:
-
-```
-zuul__{environment}__{secret_name}
-```
-
-The double-underscore delimiter was chosen because GCP secret names only allow `[a-zA-Z0-9_-]`, and double underscores are unlikely to appear in user-chosen names. Secret names containing `__` should be rejected by zuul with a clear error.
-
-**Examples:**
-
-| Zuul secret | Environment | GCP secret name |
-|---|---|---|
-| `DATABASE_URL` | `production` | `zuul__production__DATABASE_URL` |
-| `DATABASE_URL` | `dev` | `zuul__dev__DATABASE_URL` |
-| `STRIPE_KEY` | `production` | `zuul__production__STRIPE_KEY` |
-
-#### Labels and Annotations
-
-Each GCP secret is tagged with labels for efficient filtering:
-
-| Label key | Value | Purpose |
-|---|---|---|
-| `zuul-managed` | `true` | Identify zuul-managed secrets |
-| `zuul-env` | environment name | Filter by environment |
-| `zuul-name` | secret name | Group same logical secret across environments |
-
-User-defined metadata is stored as GCP annotations (which support values up to 1024 characters):
-
-| Annotation key | Example value |
-|---|---|
-| `zuul-meta--description` | `Primary database connection string` |
-| `zuul-meta--owner` | `backend-team` |
-| `zuul-meta--rotate-by` | `2026-06-01` |
-| `zuul-meta--source` | `AWS RDS console` |
-
-#### Environment Registry
-
-The list of known environments is stored in a dedicated GCP secret named `zuul__registry`. Its value is a JSON document:
-
-```json
-{
-  "version": 1,
-  "environments": {
-    "production": {
-      "description": "Live production environment",
-      "created_at": "2026-03-10T12:00:00Z",
-      "updated_at": "2026-03-10T12:00:00Z"
-    },
-    "staging": {
-      "description": "Pre-production staging",
-      "created_at": "2026-03-10T12:00:00Z",
-      "updated_at": "2026-03-10T12:00:00Z"
-    },
-    "dev": {
-      "description": "Local development",
-      "created_at": "2026-03-10T12:00:00Z",
-      "updated_at": "2026-03-10T12:00:00Z"
-    }
-  }
-}
-```
-
-**Concurrency:** Environment CRUD is infrequent. For the MVP, last-write-wins is acceptable. The `version` field and GCP's native etag support provide a path to optimistic locking if needed later.
-
-**Resilience:** If the registry is lost or corrupted, the environment list can be reconstructed by scanning labels on existing secrets (`zuul-managed=true`, aggregate distinct `zuul-env` values).
-
-#### Authentication
-
-The GCP backend supports two authentication modes:
-
-1. **Application Default Credentials (ADC):** Uses the credentials from `gcloud auth application-default login`. This is the default for local development.
-2. **Service Account Key File:** Specified via the config file or `ZUUL_GCP_CREDENTIALS` environment variable. Intended for CI/CD pipelines.
-
-#### Permissions Model
-
-Zuul does **not** implement its own authorization logic. All access control is delegated to GCP IAM. Recommended IAM roles:
-
-| Persona | GCP Role | Scope | Can manage environments? |
-|---|---|---|---|
-| Developer | `roles/secretmanager.secretAccessor` | Scoped to `dev` secrets via IAM conditions on resource name (`zuul__dev__*`) | No |
-| CI/CD pipeline | `roles/secretmanager.secretAccessor` | Scoped to target environment | No |
-| Ops / Admin | `roles/secretmanager.admin` | Full project | Yes |
-
-**Environment management is admin-only.** Creating, updating, and deleting environments requires write access to the `zuul__registry` secret, which should only be granted to the admin role. Developers and CI/CD pipelines only need read access to secrets within their scoped environments. The Terraform configuration (Section 8) enforces this by granting `secretAccessor` (read-only) to non-admin personas and restricting `secretmanager.admin` to ops.
-
-This is the primary reason for choosing the one-secret-per-name+environment mapping — it lets GCP IAM conditions operate on the resource name directly without zuul needing to interpret or enforce permissions.
+See the linked docs for backend-specific details: storage format, authentication, naming conventions, permissions, and environment management.
 
 ---
 
