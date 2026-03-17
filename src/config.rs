@@ -28,6 +28,10 @@ struct BackendConfig {
     backend_type: String,
     project_id: Option<String>,
     credentials: Option<String>,
+    /// Path to the encrypted store file (file backend only).
+    path: Option<String>,
+    /// Path to an age identity file (file backend only).
+    identity: Option<String>,
 }
 
 impl Default for BackendConfig {
@@ -36,6 +40,8 @@ impl Default for BackendConfig {
             backend_type: "gcp-secret-manager".to_string(),
             project_id: None,
             credentials: None,
+            path: None,
+            identity: None,
         }
     }
 }
@@ -56,7 +62,7 @@ struct LocalConfigFile {
 /// Resolved application configuration after merging all sources.
 #[derive(Debug, Clone)]
 pub struct Config {
-    /// Backend type (e.g., "gcp-secret-manager").
+    /// Backend type (e.g., "gcp-secret-manager", "file").
     pub backend_type: String,
     /// GCP project ID.
     pub project_id: Option<String>,
@@ -68,6 +74,10 @@ pub struct Config {
     pub local_overrides: HashMap<String, String>,
     /// Directory where `.zuul.toml` was found.
     pub config_dir: Option<PathBuf>,
+    /// Path to the encrypted store file (file backend only).
+    pub file_path: Option<String>,
+    /// Path to an age identity file (file backend only).
+    pub identity: Option<String>,
 }
 
 /// CLI-provided overrides for configuration resolution.
@@ -160,6 +170,11 @@ pub fn load_config(start_dir: &Path, cli: &CliOverrides) -> Result<Config, ZuulE
         .or_else(|| env::var("ZUUL_DEFAULT_ENV").ok())
         .or(file_config.defaults.environment);
 
+    let file_path = file_config.backend.path;
+    let identity = env::var("ZUUL_KEY_FILE")
+        .ok()
+        .or(file_config.backend.identity);
+
     Ok(Config {
         backend_type,
         project_id,
@@ -167,6 +182,8 @@ pub fn load_config(start_dir: &Path, cli: &CliOverrides) -> Result<Config, ZuulE
         default_environment,
         local_overrides,
         config_dir,
+        file_path,
+        identity,
     })
 }
 

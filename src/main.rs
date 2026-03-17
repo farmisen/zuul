@@ -3,6 +3,8 @@ use std::process;
 use clap::{CommandFactory, Parser};
 use rustls::crypto::ring::default_provider;
 
+use zuul::backend::BackendKind;
+use zuul::backend::file_backend::FileBackend;
 use zuul::backend::gcp::GcpClient;
 use zuul::backend::gcp_backend::GcpBackend;
 use zuul::cli::{
@@ -45,14 +47,37 @@ fn resolve_config(cli: &Cli, env: Option<&str>) -> Result<Config, ZuulError> {
     )
 }
 
-async fn create_backend(config: &Config) -> Result<GcpBackend, ZuulError> {
-    let project_id = config.project_id.as_deref().ok_or_else(|| {
-        ZuulError::Config(
-            "No GCP project ID configured. Run 'zuul init' to set up your project.".to_string(),
-        )
-    })?;
-    let client = GcpClient::new(project_id, config.credentials.as_deref()).await?;
-    Ok(GcpBackend::new(client))
+async fn create_backend(config: &Config) -> Result<BackendKind, ZuulError> {
+    match config.backend_type.as_str() {
+        "gcp-secret-manager" => {
+            let project_id = config.project_id.as_deref().ok_or_else(|| {
+                ZuulError::Config(
+                    "No GCP project ID configured. Run 'zuul init' to set up your project."
+                        .to_string(),
+                )
+            })?;
+            let client = GcpClient::new(project_id, config.credentials.as_deref()).await?;
+            Ok(BackendKind::Gcp(GcpBackend::new(client)))
+        }
+        "file" => {
+            let config_dir = config.config_dir.as_deref().ok_or_else(|| {
+                ZuulError::Config(
+                    "No .zuul.toml found. Run 'zuul init' to set up your project.".to_string(),
+                )
+            })?;
+            let default_path = config_dir.join(".zuul.secrets.enc");
+            let store_path = config
+                .file_path
+                .as_ref()
+                .map(std::path::PathBuf::from)
+                .unwrap_or(default_path);
+            let identity = config.identity.as_ref().map(std::path::PathBuf::from);
+            Ok(BackendKind::File(FileBackend::new(store_path, identity)))
+        }
+        other => Err(ZuulError::Config(format!(
+            "Unknown backend type '{other}'. Supported: gcp-secret-manager, file."
+        ))),
+    }
 }
 
 async fn run(cli: Cli) -> Result<(), ZuulError> {

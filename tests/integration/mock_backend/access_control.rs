@@ -121,6 +121,8 @@ async fn dev_scoped_export_production_denied_via_handler() {
         default_environment: Some("production".to_string()),
         local_overrides: HashMap::new(),
         config_dir: None,
+        file_path: None,
+        identity: None,
     };
 
     let err = cli::export::run(

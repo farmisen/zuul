@@ -1,6 +1,5 @@
 //! Tests for `zuul recover` subcommands.
 
-use zuul::backend::Backend;
 use zuul::cli::recover;
 use zuul::journal;
 use zuul::progress::ProgressOpts;
