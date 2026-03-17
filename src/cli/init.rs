@@ -4,6 +4,7 @@ use std::path::Path;
 
 use console::style;
 
+use crate::backend::file_backend::DEFAULT_STORE_FILE;
 use crate::error::ZuulError;
 use crate::prompt;
 
@@ -18,6 +19,7 @@ const GITIGNORE_FILE: &str = ".gitignore";
 ///
 /// Creates a `.zuul.toml` in the current directory and ensures
 /// `.zuul.local.toml` is listed in `.gitignore`.
+/// For the `file` backend, also creates an empty encrypted store.
 pub fn run(
     dir: &Path,
     project: Option<String>,
@@ -33,6 +35,30 @@ pub fn run(
         )));
     }
 
+    match backend {
+        "file" => init_file_backend(dir, &config_path, non_interactive)?,
+        _ => init_gcp_backend(dir, &config_path, project, backend, non_interactive)?,
+    }
+
+    add_to_gitignore(dir, LOCAL_CONFIG_FILE)?;
+
+    println!(
+        "{} Created {CONFIG_FILE} in {}",
+        style("✔").green(),
+        dir.display()
+    );
+
+    Ok(())
+}
+
+/// Initialize the GCP Secret Manager backend.
+fn init_gcp_backend(
+    _dir: &Path,
+    config_path: &Path,
+    project: Option<String>,
+    backend: &str,
+    non_interactive: bool,
+) -> Result<(), ZuulError> {
     let project_id = match project {
         Some(id) => id,
         None => prompt::input("GCP project ID", non_interactive)?,
@@ -47,16 +73,9 @@ pub fn run(
          environment = \"dev\"\n"
     );
 
-    fs::write(&config_path, &config_content)
+    fs::write(config_path, &config_content)
         .map_err(|e| ZuulError::Config(format!("Failed to write {CONFIG_FILE}: {e}")))?;
 
-    add_to_gitignore(dir)?;
-
-    println!(
-        "{} Created {CONFIG_FILE} in {}",
-        style("✔").green(),
-        dir.display()
-    );
     println!("\nNext steps:");
     println!("  cd terraform && terraform apply   # Provision environments and IAM");
     println!("  zuul auth                         # Set up GCP authentication");
@@ -64,18 +83,95 @@ pub fn run(
     Ok(())
 }
 
-/// Ensure `.zuul.local.toml` is listed in `.gitignore`.
+/// Initialize the file-based encrypted backend.
+fn init_file_backend(
+    dir: &Path,
+    config_path: &Path,
+    non_interactive: bool,
+) -> Result<(), ZuulError> {
+    let passphrase = match std::env::var("ZUUL_PASSPHRASE") {
+        Ok(p) => p,
+        Err(_) => prompt::password(
+            "Choose a passphrase for encrypting secrets",
+            non_interactive,
+        )?,
+    };
+
+    let config_content = format!(
+        "[backend]\n\
+         type = \"file\"\n\
+         # path = \"{DEFAULT_STORE_FILE}\"    # default\n\
+         \n\
+         [defaults]\n\
+         environment = \"dev\"\n"
+    );
+
+    fs::write(config_path, &config_content)
+        .map_err(|e| ZuulError::Config(format!("Failed to write {CONFIG_FILE}: {e}")))?;
+
+    // Create the empty encrypted store.
+    let store_path = dir.join(DEFAULT_STORE_FILE);
+    create_empty_store(&store_path, &passphrase)?;
+
+    // Add the encrypted store to .gitignore (it contains secrets).
+    add_to_gitignore(dir, DEFAULT_STORE_FILE)?;
+
+    println!("\nNext steps:");
+    println!("  zuul env create dev               # Create your first environment");
+    println!("  zuul secret set KEY --env dev      # Set a secret");
+
+    Ok(())
+}
+
+/// Create an empty encrypted store file.
+fn create_empty_store(store_path: &Path, passphrase: &str) -> Result<(), ZuulError> {
+    use std::io::Write as _;
+
+    let empty_store = serde_json::json!({
+        "version": 1,
+        "environments": {},
+        "secrets": {},
+        "metadata": {}
+    });
+    let plaintext = serde_json::to_vec_pretty(&empty_store)
+        .map_err(|e| ZuulError::Backend(format!("Failed to serialize empty store: {e}")))?;
+
+    let encryptor = age::Encryptor::with_user_passphrase(age::secrecy::SecretString::new(
+        passphrase.to_string(),
+    ));
+    let mut ciphertext = Vec::new();
+    let mut writer = encryptor
+        .wrap_output(&mut ciphertext)
+        .map_err(|e| ZuulError::Backend(format!("Failed to initialize encryption: {e}")))?;
+    writer
+        .write_all(&plaintext)
+        .map_err(|e| ZuulError::Backend(format!("Failed to encrypt: {e}")))?;
+    writer
+        .finish()
+        .map_err(|e| ZuulError::Backend(format!("Failed to finalize encryption: {e}")))?;
+
+    fs::write(store_path, &ciphertext).map_err(|e| {
+        ZuulError::Backend(format!(
+            "Failed to write store '{}': {e}",
+            store_path.display()
+        ))
+    })?;
+
+    Ok(())
+}
+
+/// Ensure the given entry is listed in `.gitignore`.
 ///
 /// Creates the file if it doesn't exist, or appends to it if the
 /// entry is not already present.
-fn add_to_gitignore(dir: &Path) -> Result<(), ZuulError> {
+fn add_to_gitignore(dir: &Path, entry: &str) -> Result<(), ZuulError> {
     let gitignore_path = dir.join(GITIGNORE_FILE);
 
     if gitignore_path.exists() {
         let content = fs::read_to_string(&gitignore_path)
             .map_err(|e| ZuulError::Config(format!("Failed to read {GITIGNORE_FILE}: {e}")))?;
 
-        if content.lines().any(|line| line.trim() == LOCAL_CONFIG_FILE) {
+        if content.lines().any(|line| line.trim() == entry) {
             return Ok(());
         }
 
@@ -84,16 +180,15 @@ fn add_to_gitignore(dir: &Path) -> Result<(), ZuulError> {
             .open(&gitignore_path)
             .map_err(|e| ZuulError::Config(format!("Failed to open {GITIGNORE_FILE}: {e}")))?;
 
-        // Ensure we start on a new line
         if !content.ends_with('\n') && !content.is_empty() {
             writeln!(file)
                 .map_err(|e| ZuulError::Config(format!("Failed to write {GITIGNORE_FILE}: {e}")))?;
         }
 
-        writeln!(file, "{LOCAL_CONFIG_FILE}")
+        writeln!(file, "{entry}")
             .map_err(|e| ZuulError::Config(format!("Failed to write {GITIGNORE_FILE}: {e}")))?;
     } else {
-        fs::write(&gitignore_path, format!("{LOCAL_CONFIG_FILE}\n"))
+        fs::write(&gitignore_path, format!("{entry}\n"))
             .map_err(|e| ZuulError::Config(format!("Failed to create {GITIGNORE_FILE}: {e}")))?;
     }
 

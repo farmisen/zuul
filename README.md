@@ -8,6 +8,7 @@ A CLI tool for managing secrets across multiple environments, backed by Google C
 
 - **Multi-environment** — Manage secrets across `dev`, `staging`, `production`, and any custom environments
 - **GCP Secret Manager** — Secrets are stored in Google Cloud with IAM-based access control
+- **File backend** — Encrypted local storage via `age` for offline use, small projects, and local development
 - **Export formats** — Output secrets as dotenv, direnv, JSON, YAML, or shell exports
 - **Run with secrets** — Inject secrets into any subprocess via `zuul run`
 - **Import** — Bulk-import from `.env`, JSON, or YAML files
@@ -89,7 +90,22 @@ eval "$(zuul export --env dev --export-format direnv)"
 
 See [`.envrc.example`](.envrc.example) for a ready-to-use template.
 
-## Infrastructure
+## File Backend
+
+For local development or small projects that don't need cloud infrastructure:
+
+```bash
+zuul init --backend file
+# Enter a passphrase when prompted (or set ZUUL_PASSPHRASE env var)
+
+zuul env create dev
+zuul secret set DATABASE_URL --env dev "postgres://localhost/mydb"
+zuul run --env dev -- cargo run
+```
+
+All secrets are stored in a single encrypted file (`.zuul.secrets.enc`) using `age` passphrase encryption. The file is automatically added to `.gitignore`.
+
+## Infrastructure (GCP)
 
 A Terraform module is included in [`terraform/`](terraform/) to provision the GCP backend — it enables the Secret Manager API, creates the zuul environment registry, and sets up IAM bindings.
 
