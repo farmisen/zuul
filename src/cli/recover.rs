@@ -26,12 +26,16 @@ fn operation_label(op: &OperationType) -> &'static str {
 fn params_summary(journal: &Journal) -> String {
     match journal.operation {
         OperationType::Import => {
-            let env = journal.params["environment"].as_str().unwrap_or(UNKNOWN_PARAM);
+            let env = journal.params["environment"]
+                .as_str()
+                .unwrap_or(UNKNOWN_PARAM);
             let file = journal.params["file"].as_str().unwrap_or(UNKNOWN_PARAM);
             format!("environment '{env}', file '{file}'")
         }
         OperationType::EnvClear => {
-            let env = journal.params["environment"].as_str().unwrap_or(UNKNOWN_PARAM);
+            let env = journal.params["environment"]
+                .as_str()
+                .unwrap_or(UNKNOWN_PARAM);
             format!("environment '{env}'")
         }
         OperationType::EnvCopy => {
