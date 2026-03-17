@@ -80,8 +80,32 @@ async fn run(cli: Cli) -> Result<(), ZuulError> {
             let backend = create_backend(&config).await?;
             match command {
                 EnvCommand::List => env::list(&backend, &cli.format).await?,
+                EnvCommand::Create { name, description } => {
+                    env::create(&backend, name, description.as_deref(), &cli.format).await?;
+                }
                 EnvCommand::Show { name } => {
                     env::show(&backend, name, &cli.format).await?;
+                }
+                EnvCommand::Update {
+                    name,
+                    new_name,
+                    description,
+                } => {
+                    env::update(
+                        &backend,
+                        name,
+                        new_name.as_deref(),
+                        description.as_deref(),
+                        &cli.format,
+                    )
+                    .await?;
+                }
+                EnvCommand::Delete { name, force } => {
+                    let ctx = BatchContext {
+                        progress,
+                        project_root: config.config_dir.clone(),
+                    };
+                    env::delete(&backend, name, *force, &cli.format, &ctx).await?;
                 }
                 EnvCommand::Copy {
                     from,

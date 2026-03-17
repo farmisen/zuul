@@ -193,10 +193,44 @@ pub enum EnvCommand {
     /// List all environments
     List,
 
+    /// Create a new environment
+    Create {
+        /// Environment name
+        name: String,
+
+        /// Optional description
+        #[arg(long)]
+        description: Option<String>,
+    },
+
     /// Show environment details
     Show {
         /// Environment name
         name: String,
+    },
+
+    /// Update an environment
+    Update {
+        /// Environment name
+        name: String,
+
+        /// New name (rename)
+        #[arg(long)]
+        new_name: Option<String>,
+
+        /// New description
+        #[arg(long)]
+        description: Option<String>,
+    },
+
+    /// Delete an environment and all its secrets
+    Delete {
+        /// Environment name
+        name: String,
+
+        /// Skip confirmation prompt
+        #[arg(long)]
+        force: bool,
     },
 
     /// Copy all secrets from one environment to another

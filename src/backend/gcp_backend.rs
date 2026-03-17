@@ -108,6 +108,42 @@ impl GcpBackend {
 impl Backend for GcpBackend {
     // --- Environment operations ---
 
+    async fn create_environment(
+        &self,
+        _name: &str,
+        _description: Option<&str>,
+    ) -> Result<Environment, ZuulError> {
+        Err(ZuulError::Config(
+            "Environment management is handled by Terraform for the GCP backend. \
+             Run `terraform apply` to create environments. \
+             See docs/env-admin-playbook.md for details."
+                .to_string(),
+        ))
+    }
+
+    async fn update_environment(
+        &self,
+        _name: &str,
+        _new_name: Option<&str>,
+        _new_description: Option<&str>,
+    ) -> Result<Environment, ZuulError> {
+        Err(ZuulError::Config(
+            "Environment management is handled by Terraform for the GCP backend. \
+             Run `terraform apply` to update environments. \
+             See docs/env-admin-playbook.md for details."
+                .to_string(),
+        ))
+    }
+
+    async fn delete_environment(&self, _name: &str) -> Result<(), ZuulError> {
+        Err(ZuulError::Config(
+            "Environment management is handled by Terraform for the GCP backend. \
+             Run `terraform apply` to delete environments. \
+             See docs/env-admin-playbook.md for details."
+                .to_string(),
+        ))
+    }
+
     async fn list_environments(&self) -> Result<Vec<Environment>, ZuulError> {
         let registry = self.read_registry().await?;
         let mut envs: Vec<Environment> = registry

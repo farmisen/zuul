@@ -209,6 +209,81 @@ impl Backend for MockBackend {
         async move { result }
     }
 
+    fn create_environment(
+        &self,
+        name: &str,
+        description: Option<&str>,
+    ) -> impl Future<Output = Result<Environment, ZuulError>> + Send {
+        let result = self.check_admin_access().and_then(|()| {
+            let mut state = self.state.lock().unwrap();
+            if state.environments.contains_key(name) {
+                return Err(ZuulError::AlreadyExists {
+                    resource_type: ResourceType::Environment,
+                    name: name.to_string(),
+                    environment: None,
+                });
+            }
+            let now = Utc::now();
+            let env = Environment {
+                name: name.to_string(),
+                description: description.map(String::from),
+                created_at: now,
+                updated_at: now,
+            };
+            state.environments.insert(name.to_string(), env.clone());
+            Ok(env)
+        });
+        async move { result }
+    }
+
+    fn update_environment(
+        &self,
+        name: &str,
+        new_name: Option<&str>,
+        new_description: Option<&str>,
+    ) -> impl Future<Output = Result<Environment, ZuulError>> + Send {
+        let result = self.check_admin_access().and_then(|()| {
+            let mut state = self.state.lock().unwrap();
+            let mut env = state
+                .environments
+                .remove(name)
+                .ok_or_else(|| ZuulError::NotFound {
+                    resource_type: ResourceType::Environment,
+                    name: name.to_string(),
+                    environment: None,
+                })?;
+            let final_name = new_name.unwrap_or(name);
+            if let Some(desc) = new_description {
+                env.description = Some(desc.to_string());
+            }
+            env.name = final_name.to_string();
+            env.updated_at = Utc::now();
+            state
+                .environments
+                .insert(final_name.to_string(), env.clone());
+            Ok(env)
+        });
+        async move { result }
+    }
+
+    fn delete_environment(&self, name: &str) -> impl Future<Output = Result<(), ZuulError>> + Send {
+        let result = self.check_admin_access().and_then(|()| {
+            let mut state = self.state.lock().unwrap();
+            if !state.environments.contains_key(name) {
+                return Err(ZuulError::NotFound {
+                    resource_type: ResourceType::Environment,
+                    name: name.to_string(),
+                    environment: None,
+                });
+            }
+            state.environments.remove(name);
+            state.secrets.retain(|(_, env), _| env != name);
+            state.metadata.retain(|(_, env), _| env != name);
+            Ok(())
+        });
+        async move { result }
+    }
+
     fn get_environment(
         &self,
         name: &str,

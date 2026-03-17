@@ -56,6 +56,166 @@ pub async fn list(backend: &impl Backend, format: &OutputFormat) -> Result<(), Z
     Ok(())
 }
 
+/// Run `zuul env create`.
+pub async fn create(
+    backend: &impl Backend,
+    name: &str,
+    description: Option<&str>,
+    format: &OutputFormat,
+) -> Result<(), ZuulError> {
+    let env = backend.create_environment(name, description).await?;
+
+    match format {
+        OutputFormat::Text => {
+            println!("{} Created environment '{}'.", style("✔").green(), env.name);
+        }
+        OutputFormat::Json => {
+            let json = serde_json::to_string_pretty(&env)
+                .map_err(|e| ZuulError::Backend(format!("Failed to serialize: {e}")))?;
+            println!("{json}");
+        }
+    }
+
+    Ok(())
+}
+
+/// Run `zuul env update`.
+pub async fn update(
+    backend: &impl Backend,
+    name: &str,
+    new_name: Option<&str>,
+    new_description: Option<&str>,
+    format: &OutputFormat,
+) -> Result<(), ZuulError> {
+    if new_name.is_none() && new_description.is_none() {
+        return Err(ZuulError::Validation(
+            "Nothing to update. Provide --new-name and/or --description.".to_string(),
+        ));
+    }
+
+    let env = backend
+        .update_environment(name, new_name, new_description)
+        .await?;
+
+    match format {
+        OutputFormat::Text => {
+            println!("{} Updated environment '{}'.", style("✔").green(), env.name);
+        }
+        OutputFormat::Json => {
+            let json = serde_json::to_string_pretty(&env)
+                .map_err(|e| ZuulError::Backend(format!("Failed to serialize: {e}")))?;
+            println!("{json}");
+        }
+    }
+
+    Ok(())
+}
+
+/// Run `zuul env delete`.
+pub async fn delete(
+    backend: &impl Backend,
+    name: &str,
+    force: bool,
+    format: &OutputFormat,
+    ctx: &BatchContext,
+) -> Result<(), ZuulError> {
+    // Verify environment exists.
+    backend.get_environment(name).await?;
+
+    let secrets = backend.list_secrets(Some(name)).await?;
+
+    if !secrets.is_empty() {
+        match format {
+            OutputFormat::Text => {
+                println!(
+                    "Environment '{name}' has {} secret(s) that will also be deleted:",
+                    secrets.len()
+                );
+                for secret in &secrets {
+                    println!("  - {}", secret.name);
+                }
+            }
+            OutputFormat::Json => {}
+        }
+    }
+
+    if !prompt::confirm(
+        &format!("Delete environment '{name}'?"),
+        force,
+        ctx.progress.non_interactive,
+    )? {
+        println!("Cancelled.");
+        return Ok(());
+    }
+
+    // Clear secrets first (journaled), then delete the environment.
+    if !secrets.is_empty() {
+        let use_journal = ctx.root().is_some();
+        if let Some(root) = ctx.root() {
+            journal::check_lock(root)?;
+            let steps: Vec<journal::JournalStep> = secrets
+                .iter()
+                .map(|s| journal::step("delete_secret", &s.name))
+                .collect();
+            let jrnl = journal::Journal::new(
+                journal::OperationType::EnvClear,
+                serde_json::json!({ "environment": name }),
+                steps,
+            );
+            journal::save_journal(root, &jrnl)?;
+        }
+
+        let pb = progress::progress_bar(secrets.len() as u64, ctx.progress);
+        for (i, secret) in secrets.iter().enumerate() {
+            pb.set_message(format!("Deleting '{}'...", secret.name));
+            backend.delete_secret(&secret.name, name).await?;
+
+            if use_journal
+                && let Some(root) = ctx.root()
+                && let Some(mut jrnl) = journal::load_journal(root)?
+            {
+                jrnl.mark_completed(i);
+                journal::save_journal(root, &jrnl)?;
+            }
+
+            pb.inc(1);
+        }
+        pb.finish_and_clear();
+
+        if use_journal && let Some(root) = ctx.root() {
+            journal::delete_journal(root)?;
+        }
+    }
+
+    backend.delete_environment(name).await?;
+
+    match format {
+        OutputFormat::Text => {
+            let count = secrets.len();
+            if count > 0 {
+                println!(
+                    "{} Deleted environment '{name}' and {count} secret(s).",
+                    style("✔").green()
+                );
+            } else {
+                println!("{} Deleted environment '{name}'.", style("✔").green());
+            }
+        }
+        OutputFormat::Json => {
+            let value = serde_json::json!({
+                "deleted": true,
+                "environment": name,
+                "secrets_deleted": secrets.len(),
+            });
+            let json = serde_json::to_string_pretty(&value)
+                .map_err(|e| ZuulError::Backend(format!("Failed to serialize: {e}")))?;
+            println!("{json}");
+        }
+    }
+
+    Ok(())
+}
+
 /// Run `zuul env show`.
 pub async fn show(
     backend: &impl Backend,
