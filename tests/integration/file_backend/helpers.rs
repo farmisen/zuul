@@ -113,6 +113,14 @@ pub fn setup_project_with_env() -> tempfile::TempDir {
     dir
 }
 
+/// Create a temp dir with a file backend and NO default environment configured.
+pub fn setup_project_no_default_env() -> tempfile::TempDir {
+    let dir = tempfile::tempdir().expect("failed to create temp dir");
+    let config = "[backend]\ntype = \"file\"\n";
+    std::fs::write(dir.path().join(".zuul.toml"), config).expect("failed to write .zuul.toml");
+    dir
+}
+
 /// Parse a JSON string into a serde_json::Value.
 pub fn parse_json(s: &str) -> serde_json::Value {
     serde_json::from_str(s).unwrap_or_else(|e| panic!("Failed to parse JSON: {e}\nInput: {s}"))
