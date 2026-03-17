@@ -13,7 +13,7 @@ Zuul is a command-line tool for managing secrets (environment values of any sens
 
 **Key principles:**
 
-- Backend-agnostic design with Google Cloud Secret Manager as the MVP backend
+- Backend-agnostic design with pluggable storage: GCP Secret Manager and encrypted local file
 - All access control delegated to the backend (no client-side permission logic)
 - Simple mental model: a secret has a name, a value per environment, and optional metadata
 - Export secrets in formats consumable by different toolchains (direnv, CI/CD, Docker, etc.)
@@ -63,7 +63,25 @@ trait Backend {
 }
 ```
 
-### 3.2 GCP Secret Manager Backend (MVP)
+**Environment management** (`create_environment`, `update_environment`, `delete_environment`) is backend-dependent. Backends that delegate environment lifecycle to external tools (e.g., GCP + Terraform) return an actionable error directing the user to the appropriate tool. Backends that manage their own state (e.g., file) implement these methods directly.
+
+### 3.2 File Backend
+
+The file backend stores all environments, secrets, and metadata in a single encrypted JSON file using `age` passphrase encryption. Designed for local development, small projects, and offline use.
+
+- **Storage**: single file (default: `.zuul.secrets.enc`) containing the full store
+- **Encryption**: `age` crate with passphrase-based encryption (scrypt key derivation)
+- **Passphrase resolution**: `ZUUL_PASSPHRASE` env var → interactive prompt
+- **Concurrency**: file locking via `flock` prevents concurrent corruption
+- **Environment management**: fully self-contained — `zuul env create/update/delete` work directly
+
+```toml
+[backend]
+type = "file"
+# path = ".zuul.secrets.enc"    # default
+```
+
+### 3.3 GCP Secret Manager Backend
 
 #### Naming Convention
 
@@ -223,6 +241,8 @@ Arbitrary key-value pairs attached to a logical secret, shared across all enviro
 
 Located at the project root (or a parent directory). Created by `zuul init`.
 
+**GCP Secret Manager backend:**
+
 ```toml
 [backend]
 type = "gcp-secret-manager"
@@ -233,11 +253,17 @@ project_id = "my-gcp-project-123"
 
 [defaults]
 environment = "dev"
+```
 
-# Custom export format templates (in addition to built-in formats)
-[export.formats.custom-k8s]
-template = "{{key}}: {{value | base64}}"
-separator = "\n"
+**File backend:**
+
+```toml
+[backend]
+type = "file"
+# path = ".zuul.secrets.enc"    # default
+
+[defaults]
+environment = "dev"
 ```
 
 ### 5.2 Local Overrides: `.zuul.local.toml`
@@ -296,7 +322,10 @@ Initialize a new zuul project in the current directory.
 zuul init [--project <GCP_PROJECT_ID>] [--backend <BACKEND_TYPE>]
 ```
 
-Creates a `.zuul.toml` file. If `--project` is not supplied, prompts interactively.
+Creates a `.zuul.toml` file. Supported backend types: `gcp-secret-manager` (default), `file`.
+
+- **GCP backend**: prompts for GCP project ID (or use `--project` flag)
+- **File backend** (`--backend file`): prompts for a passphrase (or set `ZUUL_PASSPHRASE` env var), creates the empty encrypted store (`.zuul.secrets.enc`), and adds it to `.gitignore`
 
 #### `zuul auth`
 
@@ -332,16 +361,22 @@ Error: No valid credentials found. Run 'zuul auth' to set up authentication.
 
 #### `zuul env`
 
-View environments and manage their secrets.
+View and manage environments.
 
 ```
-zuul env list                                          # List all environments
-zuul env show <name>                                   # Show environment details + secret count
-zuul env copy <from> <to> [--force] [--dry-run]        # Copy all secrets between environments
-zuul env clear <name> [--force] [--dry-run]            # Delete all secrets (keeps environment)
+zuul env list                                              # List all environments
+zuul env create <name> [--description <d>]                 # Create environment (file backend)
+zuul env show <name>                                       # Show environment details + secret count
+zuul env update <name> [--new-name <n>] [--description <d>]  # Update environment (file backend)
+zuul env delete <name> [--force]                           # Delete environment + secrets (file backend)
+zuul env copy <from> <to> [--force] [--dry-run]            # Copy all secrets between environments
+zuul env clear <name> [--force] [--dry-run]                # Delete all secrets (keeps environment)
 ```
 
-**Environment lifecycle (create, update, delete) is managed by Terraform**, not the CLI. Environments are infrastructure — they define IAM security boundaries and must be managed alongside their permission bindings. See [`terraform/`](../terraform/) and the [Environment Admin Playbook](env-admin-playbook.md) for details.
+**Environment lifecycle behavior depends on the backend:**
+
+- **File backend**: `env create`, `env update`, `env delete` work directly — the file backend manages its own state.
+- **GCP backend**: `env create`, `env update`, `env delete` return an error directing you to Terraform. Environments are infrastructure — they define IAM security boundaries and must be managed alongside their permission bindings. See [`terraform/`](../terraform/) and the [Environment Admin Playbook](env-admin-playbook.md) for details.
 
 `env clear --force` can be used as a Terraform `local-exec` pre-destroy provisioner to remove all bound secrets before `terraform destroy` removes the environment from the registry.
 
@@ -658,18 +693,20 @@ These are explicitly out of scope for the initial release:
 
 - **Language:** Rust
 - **CLI framework:** `clap` (derive API)
-- **GCP SDK:** `google-cloud-secretmanager` crate, or raw REST via `reqwest` + `google-authz` if the crate is lacking
+- **GCP SDK:** `gcloud-sdk` crate with `google-cloud-secretmanager-v1` feature
+- **Encryption:** `age` crate (v0.10) for file backend passphrase encryption
+- **File locking:** `fs2` crate for `flock`-based cross-process safety
 - **Config parsing:** `toml` crate
 - **Serialization:** `serde` + `serde_json`
 - **Error handling:** `anyhow` for application errors, `thiserror` for library errors
 
-### Project Structure (suggested)
+### Project Structure
 
 ```
 zuul/
 ├── Cargo.toml
 ├── src/
-│   ├── main.rs              # Entry point, CLI parsing
+│   ├── main.rs              # Entry point, CLI parsing, backend dispatch
 │   ├── cli/                  # Command handlers
 │   │   ├── mod.rs
 │   │   ├── auth.rs
@@ -677,20 +714,24 @@ zuul/
 │   │   ├── secret.rs
 │   │   ├── export.rs
 │   │   ├── import.rs
+│   │   ├── recover.rs
 │   │   └── run.rs
 │   ├── backend/              # Backend trait + implementations
-│   │   ├── mod.rs            # Backend trait definition
-│   │   └── gcp.rs            # GCP Secret Manager implementation
+│   │   ├── mod.rs            # Backend trait + BackendKind enum
+│   │   ├── gcp.rs            # GCP Secret Manager API client
+│   │   ├── gcp_backend.rs    # GCP backend implementation
+│   │   └── file_backend.rs   # File-based encrypted backend
 │   ├── config.rs             # .zuul.toml parsing and resolution
 │   ├── models.rs             # Data types (Environment, Secret, Metadata)
+│   ├── journal.rs            # Crash-recovery journal for batch operations
 │   └── error.rs              # Error types
-├── terraform/
-│   ├── main.tf
-│   ├── variables.tf
-│   └── outputs.tf
+├── terraform/                # GCP infrastructure-as-code
 ├── tests/
-│   ├── integration/          # Tests against a real or emulated GCP backend
-│   └── unit/
+│   ├── cli_parsing.rs        # CLI argument parsing tests
+│   └── integration/
+│       ├── gcp_emulator/     # GCP emulator subprocess tests (#[ignore])
+│       ├── mock_backend/     # In-memory mock backend tests
+│       └── file_backend/     # File backend integration tests
 └── README.md
 ```
 
