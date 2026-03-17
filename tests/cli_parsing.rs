@@ -248,3 +248,9 @@ fn recover_abort() {
         _ => panic!("expected Recover Abort"),
     }
 }
+
+#[test]
+fn completions_bash() {
+    let cli = parse(&["completions", "bash"]);
+    assert!(matches!(cli.command, Command::Completions { .. }));
+}

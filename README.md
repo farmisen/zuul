@@ -101,6 +101,7 @@ See [`terraform/README.md`](terraform/README.md) for details on IAM bindings, pe
 | `zuul run` | Run a command with secrets injected |
 | `zuul import` | Bulk-import secrets from a file |
 | `zuul recover status\|resume\|abort` | Inspect or resume incomplete batch operations |
+| `zuul completions <shell>` | Generate shell completions (bash, zsh, fish, etc.) |
 
 Use `zuul --help` or `zuul <command> --help` for details.
 

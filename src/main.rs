@@ -1,6 +1,6 @@
 use std::process;
 
-use clap::Parser;
+use clap::{CommandFactory, Parser};
 use rustls::crypto::ring::default_provider;
 
 use zuul::backend::gcp::GcpClient;
@@ -298,6 +298,10 @@ async fn run(cli: Cli) -> Result<(), ZuulError> {
                     recover::abort(project_root, *force, cli.non_interactive)?;
                 }
             }
+        }
+        Command::Completions { shell } => {
+            let mut cmd = Cli::command();
+            clap_complete::generate(shell, &mut cmd, "zuul", &mut std::io::stdout());
         }
     }
 
