@@ -80,7 +80,7 @@ zuul env create dev
 #        Run `terraform apply` to create environments.
 ```
 
-See the [Environment Admin Playbook](env-admin-playbook.md) for step-by-step procedures:
+See the [Environment Admin Playbook](gcp-env-playbook.md) for step-by-step procedures:
 - Creating a new environment
 - Renaming an environment
 - Decommissioning an environment

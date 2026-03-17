@@ -278,7 +278,7 @@ zuul env clear <name> [--force] [--dry-run]                # Delete all secrets 
 **Environment lifecycle behavior depends on the backend:**
 
 - **File backend**: `env create`, `env update`, `env delete` work directly — the file backend manages its own state.
-- **GCP backend**: `env create`, `env update`, `env delete` return an error directing you to Terraform. Environments are infrastructure — they define IAM security boundaries and must be managed alongside their permission bindings. See [`terraform/`](../terraform/) and the [Environment Admin Playbook](env-admin-playbook.md) for details.
+- **GCP backend**: `env create`, `env update`, `env delete` return an error directing you to Terraform. Environments are infrastructure — they define IAM security boundaries and must be managed alongside their permission bindings. See [`terraform/`](../terraform/) and the [Environment Admin Playbook](gcp-env-playbook.md) for details.
 
 `env clear --force` can be used as a Terraform `local-exec` pre-destroy provisioner to remove all bound secrets before `terraform destroy` removes the environment from the registry.
 

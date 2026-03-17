@@ -192,4 +192,4 @@ docker compose -f docker-compose.emulator.yml down
 - [File Backend](docs/backend-file.md)
 - [GCP Backend](docs/backend-gcp.md)
 - [Terraform Module](terraform/README.md)
-- [Environment Admin Playbook](docs/env-admin-playbook.md) (GCP)
+- [Environment Admin Playbook](docs/gcp-env-playbook.md) (GCP)

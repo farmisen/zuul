@@ -116,7 +116,7 @@ impl Backend for GcpBackend {
         Err(ZuulError::Config(
             "Environment management is handled by Terraform for the GCP backend. \
              Run `terraform apply` to create environments. \
-             See docs/env-admin-playbook.md for details."
+             See docs/gcp-env-playbook.md for details."
                 .to_string(),
         ))
     }
@@ -130,7 +130,7 @@ impl Backend for GcpBackend {
         Err(ZuulError::Config(
             "Environment management is handled by Terraform for the GCP backend. \
              Run `terraform apply` to update environments. \
-             See docs/env-admin-playbook.md for details."
+             See docs/gcp-env-playbook.md for details."
                 .to_string(),
         ))
     }
@@ -139,7 +139,7 @@ impl Backend for GcpBackend {
         Err(ZuulError::Config(
             "Environment management is handled by Terraform for the GCP backend. \
              Run `terraform apply` to delete environments. \
-             See docs/env-admin-playbook.md for details."
+             See docs/gcp-env-playbook.md for details."
                 .to_string(),
         ))
     }
