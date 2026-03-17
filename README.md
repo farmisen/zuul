@@ -82,6 +82,13 @@ Add this to your `.envrc` for automatic secret loading:
 eval "$(zuul export --env dev --export-format direnv)"
 ```
 
+**Caveats:**
+- Requires an active GCP auth session (`zuul auth` or `gcloud auth application-default login`)
+- Adds latency on each `cd` into the project (one API call to fetch secrets)
+- The `.envrc` file itself contains no secrets — safe to commit to version control
+
+See [`.envrc.example`](.envrc.example) for a ready-to-use template.
+
 ## Infrastructure
 
 A Terraform module is included in [`terraform/`](terraform/) to provision the GCP backend — it enables the Secret Manager API, creates the zuul environment registry, and sets up IAM bindings.
@@ -100,10 +107,34 @@ See [`terraform/README.md`](terraform/README.md) for details on IAM bindings, pe
 | `zuul export` | Export secrets in various formats |
 | `zuul run` | Run a command with secrets injected |
 | `zuul import` | Bulk-import secrets from a file |
+| `zuul diff` | Compare secrets between two environments |
 | `zuul recover status\|resume\|abort` | Inspect or resume incomplete batch operations |
 | `zuul completions <shell>` | Generate shell completions (bash, zsh, fish, etc.) |
 
 Use `zuul --help` or `zuul <command> --help` for details.
+
+## Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `ZUUL_GCP_PROJECT` | Override GCP project ID (takes precedence over `.zuul.toml`) |
+| `ZUUL_GCP_CREDENTIALS` | Path to GCP service account key file |
+| `ZUUL_DEFAULT_ENV` | Override default environment name |
+| `ZUUL_BACKEND` | Override backend type |
+
+**Resolution order** (highest priority first): CLI flags → environment variables → `.zuul.local.toml` (secrets only) → `.zuul.toml` → built-in defaults.
+
+## Permissions Model
+
+Zuul delegates all access control to GCP IAM. No client-side permission logic.
+
+| Role | GCP IAM | Can do |
+|------|---------|--------|
+| **Admin** | `secretmanager.admin` (full project) | Manage environments (via Terraform), read/write all secrets |
+| **Developer** | `secretmanager.secretAccessor` (scoped to `zuul__dev__*`) | Read/write secrets in their scoped environment |
+| **CI/CD** | `secretmanager.secretAccessor` (scoped to target env) | Read secrets for deployment |
+
+Environments are managed by Terraform, which creates both the registry entries and IAM bindings in a single `terraform apply`. See the [Environment Admin Playbook](docs/env-admin-playbook.md) for operational procedures.
 
 ## Development
 
@@ -144,3 +175,4 @@ The emulator state is in-memory — restart it for a clean slate between runs. E
 - [Software Requirements Specification](docs/zuul-spec.md)
 - [Implementation Plan](docs/implementation-plan.md)
 - [Terraform Module](terraform/README.md)
+- [Environment Admin Playbook](docs/env-admin-playbook.md)

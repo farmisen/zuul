@@ -1,0 +1,15 @@
+# .envrc — automatic secret loading via direnv
+#
+# Copy this file to .envrc and run `direnv allow`:
+#   cp .envrc.example .envrc && direnv allow
+#
+# When you `cd` into this directory, direnv evaluates this file and
+# exports all zuul secrets for the target environment into your shell.
+# The .envrc itself contains no secrets — it's safe to commit.
+#
+# Requirements:
+#   - zuul CLI installed (cargo install --path .)
+#   - Active GCP credentials (zuul auth)
+#   - direnv installed and hooked into your shell
+
+eval "$(zuul export --env dev --export-format direnv)"
