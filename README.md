@@ -189,7 +189,6 @@ docker compose -f docker-compose.emulator.yml down
 ## Documentation
 
 - [Software Requirements Specification](docs/zuul-spec.md)
-- [Implementation Plan](docs/implementation-plan.md)
 - [File Backend](docs/backend-file.md)
 - [GCP Backend](docs/backend-gcp.md)
 - [Terraform Module](terraform/README.md)
