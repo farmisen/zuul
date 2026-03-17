@@ -7,7 +7,7 @@ use zuul::backend::Backend;
 use zuul::cli::{self, ExportFormat, OutputFormat};
 use zuul::config::Config;
 use zuul::error::ZuulError;
-use zuul::progress::ProgressOpts;
+use zuul::progress::{BatchContext, ProgressOpts};
 
 use super::common::{AccessLevel, MockBackend};
 
@@ -43,44 +43,20 @@ async fn admin_can_get_production_secret() {
 async fn admin_can_clear_environment() {
     let backend = MockBackend::new(AccessLevel::Admin);
     backend.seed_environment("staging", None);
-    backend.seed_secret("KEY", "staging", "val");
-
-    cli::env::clear(
-        &backend,
-        "staging",
-        true,
-        false,
-        &OutputFormat::Text,
-        PROGRESS,
-    )
-    .await
-    .unwrap();
-
-    assert!(!backend.has_secret("KEY", "staging"));
-}
-
-#[tokio::test]
-async fn admin_can_drain_environment() {
-    let backend = MockBackend::new(AccessLevel::Admin);
-    backend.seed_environment("staging", None);
     backend.seed_secret("DB_URL", "staging", "postgres://staging");
     backend.seed_secret("API_KEY", "staging", "sk_staging");
 
-    // drain is functionally identical to clear — deletes secrets, keeps env.
-    cli::env::clear(
-        &backend,
-        "staging",
-        true,
-        false,
-        &OutputFormat::Text,
-        PROGRESS,
-    )
-    .await
-    .unwrap();
+    let ctx = BatchContext {
+        progress: PROGRESS,
+        project_root: None,
+    };
+    cli::env::clear(&backend, "staging", true, false, &OutputFormat::Text, &ctx)
+        .await
+        .unwrap();
 
     assert!(!backend.has_secret("DB_URL", "staging"));
     assert!(!backend.has_secret("API_KEY", "staging"));
-    // Environment still exists after drain.
+    // Environment still exists after clear.
     backend.get_environment("staging").await.unwrap();
 }
 
@@ -182,7 +158,11 @@ async fn dev_scoped_cannot_set_production_metadata_via_handler() {
     backend.seed_environment("production", None);
     backend.seed_secret("KEY", "production", "val");
 
-    let err = cli::metadata::set(&backend, "KEY", Some("production"), "owner", "me", true)
+    let ctx = BatchContext {
+        progress: PROGRESS,
+        project_root: None,
+    };
+    let err = cli::metadata::set(&backend, "KEY", Some("production"), "owner", "me", &ctx)
         .await
         .unwrap_err();
     assert!(matches!(err, ZuulError::PermissionDenied { .. }));
@@ -298,39 +278,38 @@ async fn permission_denied_does_not_reveal_secret_value() {
 }
 
 // ---------------------------------------------------------------------------
-// Best-effort cross-environment operations (5.6)
+// Cross-environment metadata operations with journaling
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn cross_env_metadata_set_partial_failure_reports_all() {
-    let backend = MockBackend::with_failing_metadata_envs(
-        AccessLevel::Admin,
-        vec!["staging".to_string(), "production".to_string()],
-    );
+async fn cross_env_metadata_set_stops_on_first_failure() {
+    // "staging" is configured to fail metadata writes.
+    // Environments are sorted alphabetically by list_secrets, so dev succeeds
+    // before staging fails.
+    let backend =
+        MockBackend::with_failing_metadata_envs(AccessLevel::Admin, vec!["staging".to_string()]);
     backend.seed_environment("dev", None);
     backend.seed_environment("staging", None);
-    backend.seed_environment("production", None);
     backend.seed_secret("KEY", "dev", "d");
     backend.seed_secret("KEY", "staging", "s");
-    backend.seed_secret("KEY", "production", "p");
 
-    let err = cli::metadata::set(&backend, "KEY", None, "owner", "team", true)
+    let ctx = BatchContext {
+        progress: PROGRESS,
+        project_root: None,
+    };
+    let err = cli::metadata::set(&backend, "KEY", None, "owner", "team", &ctx)
         .await
         .unwrap_err();
     let msg = err.to_string();
-
     assert!(msg.contains("staging"), "should mention staging: {msg}");
-    assert!(
-        msg.contains("production"),
-        "should mention production: {msg}"
-    );
 
+    // dev should have succeeded before the failure.
     let meta = backend.get_metadata("KEY", "dev").await.unwrap();
     assert_eq!(meta.get("owner").map(String::as_str), Some("team"));
 }
 
 #[tokio::test]
-async fn cross_env_metadata_delete_partial_failure_reports_all() {
+async fn cross_env_metadata_delete_stops_on_first_failure() {
     let backend =
         MockBackend::with_failing_metadata_envs(AccessLevel::Admin, vec!["production".to_string()]);
     backend.seed_environment("dev", None);
@@ -343,7 +322,11 @@ async fn cross_env_metadata_delete_partial_failure_reports_all() {
         .await
         .unwrap();
 
-    let err = cli::metadata::delete(&backend, "KEY", None, "tag", true)
+    let ctx = BatchContext {
+        progress: PROGRESS,
+        project_root: None,
+    };
+    let err = cli::metadata::delete(&backend, "KEY", None, "tag", &ctx)
         .await
         .unwrap_err();
     let msg = err.to_string();
@@ -352,6 +335,7 @@ async fn cross_env_metadata_delete_partial_failure_reports_all() {
         "should mention production: {msg}"
     );
 
+    // dev should have succeeded before the failure.
     let meta = backend.get_metadata("KEY", "dev").await.unwrap();
     assert!(!meta.contains_key("tag"), "tag should be deleted from dev");
 }
@@ -364,7 +348,11 @@ async fn cross_env_metadata_set_all_succeed() {
     backend.seed_secret("KEY", "dev", "d");
     backend.seed_secret("KEY", "staging", "s");
 
-    cli::metadata::set(&backend, "KEY", None, "owner", "ops", true)
+    let ctx = BatchContext {
+        progress: PROGRESS,
+        project_root: None,
+    };
+    cli::metadata::set(&backend, "KEY", None, "owner", "ops", &ctx)
         .await
         .unwrap();
 
@@ -380,7 +368,11 @@ async fn cross_env_metadata_single_env_still_fails_fast() {
     backend.seed_environment("production", None);
     backend.seed_secret("KEY", "production", "p");
 
-    let err = cli::metadata::set(&backend, "KEY", Some("production"), "owner", "me", true)
+    let ctx = BatchContext {
+        progress: PROGRESS,
+        project_root: None,
+    };
+    let err = cli::metadata::set(&backend, "KEY", Some("production"), "owner", "me", &ctx)
         .await
         .unwrap_err();
     assert!(matches!(err, ZuulError::PermissionDenied { .. }));

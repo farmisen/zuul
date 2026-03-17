@@ -195,24 +195,6 @@ pub enum EnvCommand {
         #[arg(long)]
         dry_run: bool,
     },
-
-    /// Delete all secrets from an environment (Terraform pre-destroy helper)
-    ///
-    /// Use this as a Terraform local-exec provisioner before destroying an
-    /// environment. Functionally identical to `clear`, but named to signal
-    /// its role in the Terraform lifecycle.
-    Drain {
-        /// Environment name
-        name: String,
-
-        /// Skip confirmation prompt
-        #[arg(long)]
-        force: bool,
-
-        /// Preview what would be drained without making changes
-        #[arg(long)]
-        dry_run: bool,
-    },
 }
 
 #[derive(Debug, Subcommand)]

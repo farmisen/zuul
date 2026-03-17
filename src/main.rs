@@ -89,19 +89,22 @@ async fn run(cli: Cli) -> Result<(), ZuulError> {
                     force,
                     dry_run,
                 } => {
-                    env::copy(&backend, from, to, *force, *dry_run, &cli.format, progress).await?;
+                    let ctx = BatchContext {
+                        progress,
+                        project_root: config.config_dir.clone(),
+                    };
+                    env::copy(&backend, from, to, *force, *dry_run, &cli.format, &ctx).await?;
                 }
                 EnvCommand::Clear {
                     name,
                     force,
                     dry_run,
-                }
-                | EnvCommand::Drain {
-                    name,
-                    force,
-                    dry_run,
                 } => {
-                    env::clear(&backend, name, *force, *dry_run, &cli.format, progress).await?;
+                    let ctx = BatchContext {
+                        progress,
+                        project_root: config.config_dir.clone(),
+                    };
+                    env::clear(&backend, name, *force, *dry_run, &cli.format, &ctx).await?;
                 }
             }
         }
@@ -187,21 +190,20 @@ async fn run(cli: Cli) -> Result<(), ZuulError> {
                 } => {
                     let config = resolve_config(&cli, None)?;
                     let backend = create_backend(&config).await?;
-                    metadata::set(
-                        &backend,
-                        name,
-                        env.as_deref(),
-                        key,
-                        value,
-                        cli.non_interactive,
-                    )
-                    .await?;
+                    let ctx = BatchContext {
+                        progress,
+                        project_root: config.config_dir.clone(),
+                    };
+                    metadata::set(&backend, name, env.as_deref(), key, value, &ctx).await?;
                 }
                 MetadataCommand::Delete { name, key, env } => {
                     let config = resolve_config(&cli, None)?;
                     let backend = create_backend(&config).await?;
-                    metadata::delete(&backend, name, env.as_deref(), key, cli.non_interactive)
-                        .await?;
+                    let ctx = BatchContext {
+                        progress,
+                        project_root: config.config_dir.clone(),
+                    };
+                    metadata::delete(&backend, name, env.as_deref(), key, &ctx).await?;
                 }
             },
         },

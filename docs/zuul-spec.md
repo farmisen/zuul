@@ -339,12 +339,13 @@ zuul env list                                          # List all environments
 zuul env show <name>                                   # Show environment details + secret count
 zuul env copy <from> <to> [--force] [--dry-run]        # Copy all secrets between environments
 zuul env clear <name> [--force] [--dry-run]            # Delete all secrets (keeps environment)
-zuul env drain <name> [--force] [--dry-run]            # Delete all secrets (Terraform pre-destroy helper)
 ```
 
 **Environment lifecycle (create, update, delete) is managed by Terraform**, not the CLI. Environments are infrastructure — they define IAM security boundaries and must be managed alongside their permission bindings. See [`terraform/`](../terraform/) and the [Environment Admin Playbook](env-admin-playbook.md) for details.
 
-`env drain` is functionally identical to `env clear` but named to signal its role as a Terraform `local-exec` pre-destroy provisioner. Use it to remove all bound secrets before `terraform destroy` removes the environment from the registry.
+`env clear --force` can be used as a Terraform `local-exec` pre-destroy provisioner to remove all bound secrets before `terraform destroy` removes the environment from the registry.
+
+All batch operations (`clear`, `copy`, `import`, `metadata set/delete`) use a journal file (`.zuul/journal.json`) for crash recovery. If interrupted, `zuul recover` can resume or abort the operation.
 
 #### `zuul secret`
 

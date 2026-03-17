@@ -1,11 +1,11 @@
-use std::future::Future;
-
 use comfy_table::{ContentArrangement, Table};
 use console::style;
 
 use crate::backend::Backend;
 use crate::cli::OutputFormat;
 use crate::error::ZuulError;
+use crate::journal;
+use crate::progress::BatchContext;
 
 /// Find all environments where a secret exists.
 ///
@@ -30,7 +30,9 @@ async fn resolve_environments(
             environment: None,
         })?;
 
-    Ok(entry.environments.clone())
+    let mut envs = entry.environments.clone();
+    envs.sort();
+    Ok(envs)
 }
 
 /// Run `zuul secret metadata list`.
@@ -141,22 +143,21 @@ pub async fn list(
 ///
 /// Sets the metadata key across all environments where the secret exists.
 /// If `--env` is provided, scopes to just that environment.
-/// When operating across multiple environments, uses best-effort: attempts all
-/// environments, collects errors, and reports a summary at the end.
+/// Uses journal for crash recovery when operating across multiple environments.
 pub async fn set(
     backend: &impl Backend,
     name: &str,
     env: Option<&str>,
     key: &str,
     value: &str,
-    non_interactive: bool,
+    ctx: &BatchContext,
 ) -> Result<(), ZuulError> {
     let envs = resolve_environments(backend, name, env).await?;
 
-    // Single environment: fail fast (no partial-failure scenario).
+    // Single environment: no journal needed.
     if envs.len() == 1 {
         backend.set_metadata(name, &envs[0], key, value).await?;
-        if !non_interactive {
+        if !ctx.progress.non_interactive {
             println!(
                 "{} Set metadata '{key}' on secret '{name}' in environment '{}'.",
                 style("✔").green(),
@@ -166,42 +167,72 @@ pub async fn set(
         return Ok(());
     }
 
-    // Multiple environments: best-effort.
-    let (succeeded, failed) = apply_across_envs(&envs, |environment| {
-        backend.set_metadata(name, environment, key, value)
-    })
-    .await;
-
-    if !non_interactive {
-        print_cross_env_summary("Set metadata", key, name, &succeeded, &failed);
+    // Multiple environments: use journal for crash recovery.
+    let use_journal = ctx.root().is_some();
+    if let Some(root) = ctx.root() {
+        journal::check_lock(root)?;
+        let steps: Vec<journal::JournalStep> = envs
+            .iter()
+            .map(|e| journal::step("set_metadata", e))
+            .collect();
+        let jrnl = journal::Journal::new(
+            journal::OperationType::MetadataSet,
+            serde_json::json!({
+                "secret": name,
+                "key": key,
+                "value": value,
+            }),
+            steps,
+        );
+        journal::save_journal(root, &jrnl)?;
     }
 
-    if failed.is_empty() {
-        Ok(())
-    } else {
-        Err(cross_env_error("set", key, name, &failed))
+    for (i, environment) in envs.iter().enumerate() {
+        backend.set_metadata(name, environment, key, value).await?;
+
+        if use_journal
+            && let Some(root) = ctx.root()
+            && let Some(mut jrnl) = journal::load_journal(root)?
+        {
+            jrnl.mark_completed(i);
+            journal::save_journal(root, &jrnl)?;
+        }
     }
+
+    // Clean up journal on success.
+    if use_journal && let Some(root) = ctx.root() {
+        journal::delete_journal(root)?;
+    }
+
+    if !ctx.progress.non_interactive {
+        println!(
+            "{} Set metadata '{key}' on secret '{name}' across {} environments.",
+            style("✔").green(),
+            envs.len()
+        );
+    }
+
+    Ok(())
 }
 
 /// Run `zuul secret metadata delete`.
 ///
 /// Deletes the metadata key from all environments where the secret exists.
 /// If `--env` is provided, scopes to just that environment.
-/// When operating across multiple environments, uses best-effort: attempts all
-/// environments, collects errors, and reports a summary at the end.
+/// Uses journal for crash recovery when operating across multiple environments.
 pub async fn delete(
     backend: &impl Backend,
     name: &str,
     env: Option<&str>,
     key: &str,
-    non_interactive: bool,
+    ctx: &BatchContext,
 ) -> Result<(), ZuulError> {
     let envs = resolve_environments(backend, name, env).await?;
 
-    // Single environment: fail fast (no partial-failure scenario).
+    // Single environment: no journal needed.
     if envs.len() == 1 {
         backend.delete_metadata(name, &envs[0], key).await?;
-        if !non_interactive {
+        if !ctx.progress.non_interactive {
             println!(
                 "{} Deleted metadata '{key}' from secret '{name}' in environment '{}'.",
                 style("✔").green(),
@@ -211,94 +242,49 @@ pub async fn delete(
         return Ok(());
     }
 
-    // Multiple environments: best-effort.
-    let (succeeded, failed) = apply_across_envs(&envs, |environment| {
-        backend.delete_metadata(name, environment, key)
-    })
-    .await;
-
-    if !non_interactive {
-        print_cross_env_summary("Deleted metadata", key, name, &succeeded, &failed);
+    // Multiple environments: use journal for crash recovery.
+    let use_journal = ctx.root().is_some();
+    if let Some(root) = ctx.root() {
+        journal::check_lock(root)?;
+        let steps: Vec<journal::JournalStep> = envs
+            .iter()
+            .map(|e| journal::step("delete_metadata", e))
+            .collect();
+        let jrnl = journal::Journal::new(
+            journal::OperationType::MetadataDelete,
+            serde_json::json!({
+                "secret": name,
+                "key": key,
+            }),
+            steps,
+        );
+        journal::save_journal(root, &jrnl)?;
     }
 
-    if failed.is_empty() {
-        Ok(())
-    } else {
-        Err(cross_env_error("delete", key, name, &failed))
-    }
-}
+    for (i, environment) in envs.iter().enumerate() {
+        backend.delete_metadata(name, environment, key).await?;
 
-/// Apply an async operation to each environment, collecting successes and failures.
-async fn apply_across_envs<'a, F, Fut>(
-    envs: &'a [String],
-    operation: F,
-) -> (Vec<&'a str>, Vec<(&'a str, ZuulError)>)
-where
-    F: Fn(&'a str) -> Fut,
-    Fut: Future<Output = Result<(), ZuulError>>,
-{
-    let mut succeeded: Vec<&str> = Vec::new();
-    let mut failed: Vec<(&str, ZuulError)> = Vec::new();
-
-    for environment in envs {
-        match operation(environment).await {
-            Ok(()) => succeeded.push(environment),
-            Err(e) => failed.push((environment, e)),
+        if use_journal
+            && let Some(root) = ctx.root()
+            && let Some(mut jrnl) = journal::load_journal(root)?
+        {
+            jrnl.mark_completed(i);
+            journal::save_journal(root, &jrnl)?;
         }
     }
 
-    (succeeded, failed)
-}
-
-/// Print a human-readable summary of a cross-environment operation.
-fn print_cross_env_summary(
-    verb: &str,
-    key: &str,
-    name: &str,
-    succeeded: &[&str],
-    failed: &[(&str, ZuulError)],
-) {
-    if failed.is_empty() {
-        println!(
-            "{} {verb} '{key}' on secret '{name}' across {} environments.",
-            style("✔").green(),
-            succeeded.len()
-        );
-        return;
+    // Clean up journal on success.
+    if use_journal && let Some(root) = ctx.root() {
+        journal::delete_journal(root)?;
     }
 
-    // Some succeeded.
-    if !succeeded.is_empty() {
+    if !ctx.progress.non_interactive {
         println!(
-            "{} {verb} '{key}' on secret '{name}' in: {}",
+            "{} Deleted metadata '{key}' from secret '{name}' across {} environments.",
             style("✔").green(),
-            succeeded.join(", ")
+            envs.len()
         );
     }
 
-    // Report each failure.
-    for (env, err) in failed {
-        println!("{} Failed in '{}': {}", style("✖").red(), env, err);
-    }
-
-    let total = succeeded.len() + failed.len();
-    println!("\n{} of {} environments succeeded.", succeeded.len(), total);
-}
-
-/// Build a `ZuulError` summarising a partial cross-environment failure.
-fn cross_env_error(
-    operation: &str,
-    key: &str,
-    name: &str,
-    failed: &[(&str, ZuulError)],
-) -> ZuulError {
-    let details: Vec<String> = failed
-        .iter()
-        .map(|(env, err)| format!("  {env}: {err}"))
-        .collect();
-    ZuulError::Backend(format!(
-        "Failed to {operation} metadata '{key}' on secret '{name}' in {} environment(s):\n{}",
-        failed.len(),
-        details.join("\n")
-    ))
+    Ok(())
 }

@@ -87,7 +87,7 @@ Renaming is a two-step process: create the new name, migrate secrets, remove the
 6. Drain secrets from the old environment and apply:
 
    ```bash
-   zuul env drain staging --force
+   zuul env clear staging --force
    cd terraform && terraform apply
    ```
 
@@ -98,7 +98,7 @@ Renaming is a two-step process: create the new name, migrate secrets, remove the
 1. Drain all secrets:
 
    ```bash
-   zuul env drain staging --force
+   zuul env clear staging --force
    ```
 
 2. Remove from `terraform/terraform.tfvars`:
@@ -126,7 +126,7 @@ Renaming is a two-step process: create the new name, migrate secrets, remove the
 
 ## Terraform Pre-Destroy Hook
 
-To automatically drain secrets before Terraform removes an environment, add a `null_resource` to your Terraform configuration:
+To automatically clear secrets before Terraform removes an environment, add a `null_resource` to your Terraform configuration:
 
 ```hcl
 resource "null_resource" "drain_env" {
@@ -138,7 +138,7 @@ resource "null_resource" "drain_env" {
 
   provisioner "local-exec" {
     when    = destroy
-    command = "zuul env drain ${self.triggers.env} --force"
+    command = "zuul env clear ${self.triggers.env} --force"
   }
 }
 ```

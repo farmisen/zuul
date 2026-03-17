@@ -47,12 +47,12 @@ fn env_list() {
 }
 
 #[test]
-fn env_drain() {
-    let cli = parse(&["env", "drain", "staging", "--force"]);
+fn env_clear() {
+    let cli = parse(&["env", "clear", "staging", "--force"]);
     match cli.command {
         Command::Env {
             command:
-                EnvCommand::Drain {
+                EnvCommand::Clear {
                     name,
                     force,
                     dry_run,
@@ -62,7 +62,7 @@ fn env_drain() {
             assert!(force);
             assert!(!dry_run);
         }
-        _ => panic!("expected Env Drain"),
+        _ => panic!("expected Env Clear"),
     }
 }
 

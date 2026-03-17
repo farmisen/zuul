@@ -4,7 +4,8 @@ use console::style;
 use crate::backend::Backend;
 use crate::cli::OutputFormat;
 use crate::error::ZuulError;
-use crate::progress::{self, ProgressOpts};
+use crate::journal;
+use crate::progress::{self, BatchContext};
 use crate::prompt;
 
 /// Run `zuul env list`.
@@ -115,14 +116,14 @@ pub async fn copy(
     force: bool,
     dry_run: bool,
     format: &OutputFormat,
-    progress: ProgressOpts,
+    ctx: &BatchContext,
 ) -> Result<(), ZuulError> {
     // Verify both environments exist.
     backend.get_environment(from).await?;
     backend.get_environment(to).await?;
 
     // Fetch source secrets (name + value).
-    let sp = progress::spinner("Fetching secrets...", progress);
+    let sp = progress::spinner("Fetching secrets...", ctx.progress);
     let source_secrets = backend.list_secrets_for_environment(from).await?;
     let target_secrets = backend.list_secrets(Some(to)).await?;
     sp.finish_and_clear();
@@ -204,19 +205,49 @@ pub async fn copy(
             source_secrets.len()
         ),
         force,
-        progress.non_interactive,
+        ctx.progress.non_interactive,
     )? {
         println!("Cancelled.");
         return Ok(());
     }
 
-    let pb = progress::progress_bar(source_secrets.len() as u64, progress);
-    for (name, sv) in &source_secrets {
+    // Set up journal for crash recovery.
+    let use_journal = ctx.root().is_some();
+    if let Some(root) = ctx.root() {
+        journal::check_lock(root)?;
+        let steps: Vec<journal::JournalStep> = source_secrets
+            .iter()
+            .map(|(name, _)| journal::step("set_secret", name))
+            .collect();
+        let jrnl = journal::Journal::new(
+            journal::OperationType::EnvCopy,
+            serde_json::json!({ "from": from, "to": to }),
+            steps,
+        );
+        journal::save_journal(root, &jrnl)?;
+    }
+
+    let pb = progress::progress_bar(source_secrets.len() as u64, ctx.progress);
+    for (i, (name, sv)) in source_secrets.iter().enumerate() {
         pb.set_message(format!("Copying '{name}'..."));
         backend.set_secret(name, to, &sv.value).await?;
+
+        if use_journal
+            && let Some(root) = ctx.root()
+            && let Some(mut jrnl) = journal::load_journal(root)?
+        {
+            jrnl.mark_completed(i);
+            journal::save_journal(root, &jrnl)?;
+        }
+
         pb.inc(1);
     }
     pb.finish_and_clear();
+
+    // Clean up journal on success.
+    if use_journal && let Some(root) = ctx.root() {
+        journal::delete_journal(root)?;
+    }
 
     match format {
         OutputFormat::Text => {
@@ -249,18 +280,19 @@ pub async fn copy(
 /// Run `zuul env clear`.
 ///
 /// Deletes all secrets in an environment but keeps the environment itself.
+/// Also used as the Terraform pre-destroy helper (`zuul env clear <name> --force`).
 pub async fn clear(
     backend: &impl Backend,
     name: &str,
     force: bool,
     dry_run: bool,
     format: &OutputFormat,
-    progress: ProgressOpts,
+    ctx: &BatchContext,
 ) -> Result<(), ZuulError> {
     // Verify environment exists.
     backend.get_environment(name).await?;
 
-    let sp = progress::spinner("Fetching secrets...", progress);
+    let sp = progress::spinner("Fetching secrets...", ctx.progress);
     let secrets = backend.list_secrets(Some(name)).await?;
     sp.finish_and_clear();
 
@@ -321,19 +353,49 @@ pub async fn clear(
             secrets.len()
         ),
         force,
-        progress.non_interactive,
+        ctx.progress.non_interactive,
     )? {
         println!("Cancelled.");
         return Ok(());
     }
 
-    let pb = progress::progress_bar(secrets.len() as u64, progress);
-    for secret in &secrets {
+    // Set up journal for crash recovery.
+    let use_journal = ctx.root().is_some();
+    if let Some(root) = ctx.root() {
+        journal::check_lock(root)?;
+        let steps: Vec<journal::JournalStep> = secrets
+            .iter()
+            .map(|s| journal::step("delete_secret", &s.name))
+            .collect();
+        let jrnl = journal::Journal::new(
+            journal::OperationType::EnvClear,
+            serde_json::json!({ "environment": name }),
+            steps,
+        );
+        journal::save_journal(root, &jrnl)?;
+    }
+
+    let pb = progress::progress_bar(secrets.len() as u64, ctx.progress);
+    for (i, secret) in secrets.iter().enumerate() {
         pb.set_message(format!("Deleting '{}'...", secret.name));
         backend.delete_secret(&secret.name, name).await?;
+
+        if use_journal
+            && let Some(root) = ctx.root()
+            && let Some(mut jrnl) = journal::load_journal(root)?
+        {
+            jrnl.mark_completed(i);
+            journal::save_journal(root, &jrnl)?;
+        }
+
         pb.inc(1);
     }
     pb.finish_and_clear();
+
+    // Clean up journal on success.
+    if use_journal && let Some(root) = ctx.root() {
+        journal::delete_journal(root)?;
+    }
 
     match format {
         OutputFormat::Text => {

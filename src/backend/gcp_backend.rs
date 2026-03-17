@@ -103,7 +103,6 @@ impl GcpBackend {
             Err(e) => Err(e),
         }
     }
-
 }
 
 impl Backend for GcpBackend {

@@ -21,6 +21,10 @@ const GITIGNORE_ENTRY: &str = ".zuul/";
 #[serde(rename_all = "snake_case")]
 pub enum OperationType {
     Import,
+    EnvClear,
+    EnvCopy,
+    MetadataSet,
+    MetadataDelete,
 }
 
 /// Status of an individual journal step.
