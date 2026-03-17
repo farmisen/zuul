@@ -37,3 +37,7 @@ path = "tests/integration/gcp_emulator/main.rs"
 [[test]]
 name = "mock_backend"
 path = "tests/integration/mock_backend/main.rs"
+
+[[test]]
+name = "file_backend"
+path = "tests/integration/file_backend/main.rs"
