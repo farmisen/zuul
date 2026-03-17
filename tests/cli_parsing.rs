@@ -1,5 +1,5 @@
 use clap::Parser;
-use zuul::cli::{Cli, Command, EnvCommand, ExportFormat, SecretCommand};
+use zuul::cli::{Cli, Command, EnvCommand, ExportFormat, RecoverCommand, SecretCommand};
 
 // Note: EnvCommand::Create, Update, Delete were removed in item 5.14
 // (environment lifecycle moved to Terraform).
@@ -213,5 +213,38 @@ fn diff_show_values() {
             assert!(show_values);
         }
         _ => panic!("expected Diff"),
+    }
+}
+
+#[test]
+fn recover_status() {
+    let cli = parse(&["recover", "status"]);
+    assert!(matches!(
+        cli.command,
+        Command::Recover {
+            command: RecoverCommand::Status
+        }
+    ));
+}
+
+#[test]
+fn recover_resume_force() {
+    let cli = parse(&["recover", "resume", "--force"]);
+    match cli.command {
+        Command::Recover {
+            command: RecoverCommand::Resume { force },
+        } => assert!(force),
+        _ => panic!("expected Recover Resume"),
+    }
+}
+
+#[test]
+fn recover_abort() {
+    let cli = parse(&["recover", "abort"]);
+    match cli.command {
+        Command::Recover {
+            command: RecoverCommand::Abort { force },
+        } => assert!(!force),
+        _ => panic!("expected Recover Abort"),
     }
 }

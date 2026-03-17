@@ -5,6 +5,7 @@ pub mod export;
 pub mod import;
 pub mod init;
 pub mod metadata;
+pub mod recover;
 pub mod run;
 pub mod secret;
 
@@ -151,6 +152,32 @@ pub enum Command {
         /// Show actual secret values (masked by default)
         #[arg(long)]
         show_values: bool,
+    },
+
+    /// Inspect or resume an incomplete batch operation
+    Recover {
+        #[command(subcommand)]
+        command: RecoverCommand,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum RecoverCommand {
+    /// Show details of the incomplete operation
+    Status,
+
+    /// Resume the incomplete operation from where it left off
+    Resume {
+        /// Skip confirmation prompt
+        #[arg(long)]
+        force: bool,
+    },
+
+    /// Discard the journal without resuming (acknowledge partial state)
+    Abort {
+        /// Skip confirmation prompt
+        #[arg(long)]
+        force: bool,
     },
 }
 

@@ -494,6 +494,24 @@ STRIPE_KEY        (not set)    sk_test_...
 DEBUG_MODE        true         (not set)
 ```
 
+#### `zuul recover`
+
+Inspect or resume an incomplete batch operation. All batch operations (`import`, `env clear`, `env copy`, `metadata set/delete`) write a journal file (`.zuul/journal.json`) before starting. If a batch operation is interrupted, the journal records which steps completed and which are still pending.
+
+```
+zuul recover status                # Show pending operation details
+zuul recover resume [--force]      # Resume from the first pending step
+zuul recover abort [--force]       # Discard the journal (acknowledge partial state)
+```
+
+**`status`:** Read-only. Displays the operation type, parameters, start time, progress (e.g., "2 of 5 steps completed"), and lists the pending steps.
+
+**`resume`:** Re-executes pending steps from where the operation left off. For `import`, the source file must still be accessible. Requires confirmation unless `--force` is passed.
+
+**`abort`:** Deletes the journal file and prints a summary of the partial state left behind. The user is responsible for any manual cleanup. For deleted secrets, GCP Secret Manager's configurable destruction grace period allows recovery via `gcloud`. Requires confirmation unless `--force` is passed.
+
+If no journal exists, all subcommands print "No incomplete operations found." and exit successfully.
+
 ---
 
 ## 7. Export Format Details

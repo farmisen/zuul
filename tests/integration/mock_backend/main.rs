@@ -5,3 +5,4 @@
 mod access_control;
 mod common;
 mod journal;
+mod recover;

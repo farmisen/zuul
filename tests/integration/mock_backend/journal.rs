@@ -93,9 +93,17 @@ async fn journal_lock_prevents_concurrent_copy() {
     journal::save_journal(dir.path(), &fake).unwrap();
 
     let ctx = batch_ctx(dir.path());
-    let err = cli::env::copy(&backend, "src", "dst", true, false, &OutputFormat::Text, &ctx)
-        .await
-        .unwrap_err();
+    let err = cli::env::copy(
+        &backend,
+        "src",
+        "dst",
+        true,
+        false,
+        &OutputFormat::Text,
+        &ctx,
+    )
+    .await
+    .unwrap_err();
 
     assert!(err.to_string().contains("zuul recover"));
     assert!(!backend.has_secret("KEY", "dst"));
@@ -210,9 +218,17 @@ async fn copy_creates_and_cleans_journal() {
     backend.seed_secret("API_KEY", "src", "sk_src");
 
     let ctx = batch_ctx(dir.path());
-    cli::env::copy(&backend, "src", "dst", true, false, &OutputFormat::Text, &ctx)
-        .await
-        .unwrap();
+    cli::env::copy(
+        &backend,
+        "src",
+        "dst",
+        true,
+        false,
+        &OutputFormat::Text,
+        &ctx,
+    )
+    .await
+    .unwrap();
 
     assert!(!journal::journal_path(dir.path()).exists());
     assert_eq!(
@@ -234,9 +250,17 @@ async fn copy_dry_run_does_not_create_journal() {
     backend.seed_secret("KEY", "src", "val");
 
     let ctx = batch_ctx(dir.path());
-    cli::env::copy(&backend, "src", "dst", true, true, &OutputFormat::Text, &ctx)
-        .await
-        .unwrap();
+    cli::env::copy(
+        &backend,
+        "src",
+        "dst",
+        true,
+        true,
+        &OutputFormat::Text,
+        &ctx,
+    )
+    .await
+    .unwrap();
 
     assert!(!dir.path().join(".zuul").exists());
     assert!(!backend.has_secret("KEY", "dst"));

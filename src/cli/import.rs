@@ -176,6 +176,15 @@ fn run_dry(
     Ok(())
 }
 
+/// Parse a file's content by auto-detecting the format from the file path extension.
+///
+/// Used by `recover resume` to re-read a source file from a journal's params.
+pub fn parse_auto(content: &str, file_path: &str) -> Result<Vec<(String, String)>, ZuulError> {
+    let path = Path::new(file_path);
+    let format = detect_format(path)?;
+    parse(&format, content)
+}
+
 /// Auto-detect import format from file extension.
 fn detect_format(path: &Path) -> Result<ImportFormat, ZuulError> {
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");

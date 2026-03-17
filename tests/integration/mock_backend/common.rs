@@ -109,6 +109,13 @@ impl MockBackend {
         self.state.lock().unwrap().environments.contains_key(name)
     }
 
+    pub fn remove_secret(&self, name: &str, environment: &str) {
+        let mut state = self.state.lock().unwrap();
+        state
+            .secrets
+            .remove(&(name.to_string(), environment.to_string()));
+    }
+
     pub fn has_secret(&self, name: &str, environment: &str) -> bool {
         self.state
             .lock()

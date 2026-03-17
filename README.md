@@ -100,6 +100,7 @@ See [`terraform/README.md`](terraform/README.md) for details on IAM bindings, pe
 | `zuul export` | Export secrets in various formats |
 | `zuul run` | Run a command with secrets injected |
 | `zuul import` | Bulk-import secrets from a file |
+| `zuul recover status\|resume\|abort` | Inspect or resume incomplete batch operations |
 
 Use `zuul --help` or `zuul <command> --help` for details.
 

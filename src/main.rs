@@ -6,8 +6,8 @@ use rustls::crypto::ring::default_provider;
 use zuul::backend::gcp::GcpClient;
 use zuul::backend::gcp_backend::GcpBackend;
 use zuul::cli::{
-    Cli, Command, EnvCommand, MetadataCommand, SecretCommand, auth, diff, env, export, import,
-    init, metadata, run, secret,
+    Cli, Command, EnvCommand, MetadataCommand, RecoverCommand, SecretCommand, auth, diff, env,
+    export, import, init, metadata, recover, run, secret,
 };
 use zuul::config::{CliOverrides, Config, load_config};
 use zuul::error::ZuulError;
@@ -271,6 +271,33 @@ async fn run(cli: Cli) -> Result<(), ZuulError> {
             let config = resolve_config(&cli, None)?;
             let backend = create_backend(&config).await?;
             diff::run(&backend, env_a, env_b, show_values, &cli.format, progress).await?;
+        }
+        Command::Recover { ref command } => {
+            let config = resolve_config(&cli, None)?;
+            let project_root = config.config_dir.as_deref().ok_or_else(|| {
+                ZuulError::Config(
+                    "No .zuul.toml found. Run 'zuul init' to set up your project.".to_string(),
+                )
+            })?;
+            match command {
+                RecoverCommand::Status => {
+                    recover::status(project_root)?;
+                }
+                RecoverCommand::Resume { force } => {
+                    let backend = create_backend(&config).await?;
+                    recover::resume(
+                        &backend,
+                        project_root,
+                        *force,
+                        cli.non_interactive,
+                        progress,
+                    )
+                    .await?;
+                }
+                RecoverCommand::Abort { force } => {
+                    recover::abort(project_root, *force, cli.non_interactive)?;
+                }
+            }
         }
     }
 
