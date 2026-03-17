@@ -1,7 +1,7 @@
 //! Metadata CRUD tests for the file backend.
 
-use zuul::backend::file_backend::FileBackend;
 use zuul::backend::Backend;
+use zuul::backend::file_backend::FileBackend;
 use zuul::error::ZuulError;
 
 fn test_backend(dir: &std::path::Path) -> FileBackend {
@@ -72,10 +72,7 @@ async fn get_metadata_nonexistent_secret() {
     let backend = test_backend(dir.path());
     backend.create_environment("dev", None).await.unwrap();
 
-    let err = backend
-        .get_metadata("NOPE", "dev")
-        .await
-        .unwrap_err();
+    let err = backend.get_metadata("NOPE", "dev").await.unwrap_err();
     assert!(
         matches!(err, ZuulError::NotFound { .. }),
         "expected NotFound, got: {err}"
@@ -158,14 +155,8 @@ async fn metadata_isolated_across_environments() {
     let backend = test_backend(dir.path());
     backend.create_environment("dev", None).await.unwrap();
     backend.create_environment("prod", None).await.unwrap();
-    backend
-        .set_secret("KEY", "dev", "d")
-        .await
-        .unwrap();
-    backend
-        .set_secret("KEY", "prod", "p")
-        .await
-        .unwrap();
+    backend.set_secret("KEY", "dev", "d").await.unwrap();
+    backend.set_secret("KEY", "prod", "p").await.unwrap();
 
     backend
         .set_metadata("KEY", "dev", "owner", "dev-team")
@@ -179,10 +170,7 @@ async fn metadata_isolated_across_environments() {
     let dev_meta = backend.get_metadata("KEY", "dev").await.unwrap();
     let prod_meta = backend.get_metadata("KEY", "prod").await.unwrap();
     assert_eq!(dev_meta.get("owner").map(String::as_str), Some("dev-team"));
-    assert_eq!(
-        prod_meta.get("owner").map(String::as_str),
-        Some("ops-team")
-    );
+    assert_eq!(prod_meta.get("owner").map(String::as_str), Some("ops-team"));
 }
 
 // ---------------------------------------------------------------------------

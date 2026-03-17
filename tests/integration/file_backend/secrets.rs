@@ -1,7 +1,7 @@
 //! Secret CRUD tests for the file backend.
 
-use zuul::backend::file_backend::FileBackend;
 use zuul::backend::Backend;
+use zuul::backend::file_backend::FileBackend;
 use zuul::error::ZuulError;
 
 fn test_backend(dir: &std::path::Path) -> FileBackend {
@@ -60,16 +60,10 @@ async fn set_secret_increments_version() {
     let dir = tempfile::tempdir().unwrap();
     let backend = seeded_backend(dir.path()).await;
 
-    backend
-        .set_secret("KEY", "dev", "v1")
-        .await
-        .unwrap();
+    backend.set_secret("KEY", "dev", "v1").await.unwrap();
     let sv1 = backend.get_secret("KEY", "dev").await.unwrap();
 
-    backend
-        .set_secret("KEY", "dev", "v2")
-        .await
-        .unwrap();
+    backend.set_secret("KEY", "dev", "v2").await.unwrap();
     let sv2 = backend.get_secret("KEY", "dev").await.unwrap();
 
     assert_ne!(sv1.version, sv2.version);
@@ -80,10 +74,7 @@ async fn set_secret_nonexistent_env_fails() {
     let dir = tempfile::tempdir().unwrap();
     let backend = test_backend(dir.path());
 
-    let err = backend
-        .set_secret("KEY", "nope", "val")
-        .await
-        .unwrap_err();
+    let err = backend.set_secret("KEY", "nope", "val").await.unwrap_err();
     assert!(
         matches!(err, ZuulError::NotFound { .. }),
         "expected NotFound, got: {err}"
@@ -105,10 +96,7 @@ async fn set_and_get_multiline_value() {
     let backend = seeded_backend(dir.path()).await;
 
     let cert = "-----BEGIN CERT-----\nMIIBxTCCA...\n-----END CERT-----";
-    backend
-        .set_secret("TLS_CERT", "dev", cert)
-        .await
-        .unwrap();
+    backend.set_secret("TLS_CERT", "dev", cert).await.unwrap();
 
     let sv = backend.get_secret("TLS_CERT", "dev").await.unwrap();
     assert_eq!(sv.value, cert);
@@ -123,10 +111,7 @@ async fn delete_secret_basic() {
     let dir = tempfile::tempdir().unwrap();
     let backend = seeded_backend(dir.path()).await;
 
-    backend
-        .set_secret("KEY", "dev", "val")
-        .await
-        .unwrap();
+    backend.set_secret("KEY", "dev", "val").await.unwrap();
     backend.delete_secret("KEY", "dev").await.unwrap();
 
     let err = backend.get_secret("KEY", "dev").await.unwrap_err();
@@ -225,10 +210,7 @@ async fn secrets_isolated_across_environments() {
     backend.create_environment("dev", None).await.unwrap();
     backend.create_environment("prod", None).await.unwrap();
 
-    backend
-        .set_secret("DB_URL", "dev", "dev-db")
-        .await
-        .unwrap();
+    backend.set_secret("DB_URL", "dev", "dev-db").await.unwrap();
     backend
         .set_secret("DB_URL", "prod", "prod-db")
         .await
@@ -259,10 +241,7 @@ async fn data_persists_across_instances() {
             .create_environment("dev", Some("Development"))
             .await
             .unwrap();
-        backend
-            .set_secret("KEY", "dev", "persisted")
-            .await
-            .unwrap();
+        backend.set_secret("KEY", "dev", "persisted").await.unwrap();
     }
 
     // New instance reads from the same file

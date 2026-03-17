@@ -1,7 +1,7 @@
 //! Environment CRUD tests for the file backend.
 
-use zuul::backend::file_backend::FileBackend;
 use zuul::backend::Backend;
+use zuul::backend::file_backend::FileBackend;
 use zuul::error::ZuulError;
 
 fn test_backend(dir: &std::path::Path) -> FileBackend {
