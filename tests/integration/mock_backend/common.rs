@@ -104,6 +104,7 @@ impl MockBackend {
 
     // --- Query helpers ---
 
+    #[allow(dead_code)]
     pub fn has_env(&self, name: &str) -> bool {
         self.state.lock().unwrap().environments.contains_key(name)
     }
@@ -125,6 +126,7 @@ impl MockBackend {
             .map(|sv| sv.value.clone())
     }
 
+    #[allow(dead_code)]
     pub fn get_meta(&self, secret: &str, environment: &str) -> HashMap<String, String> {
         self.state
             .lock()
@@ -135,6 +137,7 @@ impl MockBackend {
             .unwrap_or_default()
     }
 
+    #[allow(dead_code)]
     pub fn secret_count(&self, environment: &str) -> usize {
         self.state
             .lock()
@@ -174,6 +177,7 @@ impl MockBackend {
         }
     }
 
+    #[allow(dead_code)]
     fn check_admin_access(&self) -> Result<(), ZuulError> {
         match &self.access {
             AccessLevel::Admin => Ok(()),
@@ -198,33 +202,6 @@ impl Backend for MockBackend {
         async move { result }
     }
 
-    fn create_environment(
-        &self,
-        name: &str,
-        description: Option<&str>,
-    ) -> impl Future<Output = Result<Environment, ZuulError>> + Send {
-        let result = self.check_admin_access().and_then(|()| {
-            let mut state = self.state.lock().unwrap();
-            if state.environments.contains_key(name) {
-                return Err(ZuulError::AlreadyExists {
-                    resource_type: ResourceType::Environment,
-                    name: name.to_string(),
-                    environment: None,
-                });
-            }
-            let now = Utc::now();
-            let env = Environment {
-                name: name.to_string(),
-                description: description.map(String::from),
-                created_at: now,
-                updated_at: now,
-            };
-            state.environments.insert(name.to_string(), env.clone());
-            Ok(env)
-        });
-        async move { result }
-    }
-
     fn get_environment(
         &self,
         name: &str,
@@ -240,54 +217,6 @@ impl Backend for MockBackend {
                     name: name.to_string(),
                     environment: None,
                 })
-        });
-        async move { result }
-    }
-
-    fn update_environment(
-        &self,
-        name: &str,
-        new_name: Option<&str>,
-        new_description: Option<&str>,
-    ) -> impl Future<Output = Result<Environment, ZuulError>> + Send {
-        let result = self.check_admin_access().and_then(|()| {
-            let mut state = self.state.lock().unwrap();
-            let mut env = state
-                .environments
-                .remove(name)
-                .ok_or_else(|| ZuulError::NotFound {
-                    resource_type: ResourceType::Environment,
-                    name: name.to_string(),
-                    environment: None,
-                })?;
-            let final_name = new_name.unwrap_or(name);
-            if let Some(desc) = new_description {
-                env.description = Some(desc.to_string());
-            }
-            env.name = final_name.to_string();
-            env.updated_at = Utc::now();
-            state
-                .environments
-                .insert(final_name.to_string(), env.clone());
-            Ok(env)
-        });
-        async move { result }
-    }
-
-    fn delete_environment(&self, name: &str) -> impl Future<Output = Result<(), ZuulError>> + Send {
-        let result = self.check_admin_access().and_then(|()| {
-            let mut state = self.state.lock().unwrap();
-            if !state.environments.contains_key(name) {
-                return Err(ZuulError::NotFound {
-                    resource_type: ResourceType::Environment,
-                    name: name.to_string(),
-                    environment: None,
-                });
-            }
-            state.environments.remove(name);
-            state.secrets.retain(|(_, env), _| env != name);
-            state.metadata.retain(|(_, env), _| env != name);
-            Ok(())
         });
         async move { result }
     }

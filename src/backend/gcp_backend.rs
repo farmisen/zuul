@@ -104,31 +104,6 @@ impl GcpBackend {
         }
     }
 
-    /// Write the registry back to GCP.
-    ///
-    /// Creates the registry secret on first use if it does not exist.
-    async fn write_registry(&self, registry: &Registry) -> Result<(), ZuulError> {
-        let json = serde_json::to_string_pretty(registry)
-            .map_err(|e| ZuulError::Backend(format!("Failed to serialize registry: {e}")))?;
-
-        // Try to add a version. If the secret doesn't exist yet, create it first.
-        match self
-            .client
-            .add_secret_version(REGISTRY_SECRET_ID, json.as_bytes())
-            .await
-        {
-            Ok(()) => Ok(()),
-            Err(ZuulError::Backend(msg)) if msg.contains("not found") => {
-                self.client
-                    .create_secret(REGISTRY_SECRET_ID, HashMap::new(), HashMap::new())
-                    .await?;
-                self.client
-                    .add_secret_version(REGISTRY_SECRET_ID, json.as_bytes())
-                    .await
-            }
-            Err(e) => Err(e),
-        }
-    }
 }
 
 impl Backend for GcpBackend {
@@ -148,37 +123,6 @@ impl Backend for GcpBackend {
         Ok(envs)
     }
 
-    async fn create_environment(
-        &self,
-        name: &str,
-        description: Option<&str>,
-    ) -> Result<Environment, ZuulError> {
-        validate_environment_name(name).map_err(ZuulError::Validation)?;
-
-        let mut registry = self.read_registry().await?;
-
-        if registry.environments.contains_key(name) {
-            return Err(ZuulError::AlreadyExists {
-                resource_type: ResourceType::Environment,
-                name: name.to_string(),
-                environment: None,
-            });
-        }
-
-        let now = Utc::now();
-        let env = Environment {
-            name: name.to_string(),
-            description: description.map(String::from),
-            created_at: now,
-            updated_at: now,
-        };
-
-        registry.environments.insert(name.to_string(), env.clone());
-        self.write_registry(&registry).await?;
-
-        Ok(env)
-    }
-
     async fn get_environment(&self, name: &str) -> Result<Environment, ZuulError> {
         validate_environment_name(name).map_err(ZuulError::Validation)?;
         let registry = self.read_registry().await?;
@@ -196,81 +140,6 @@ impl Backend for GcpBackend {
                 name: name.to_string(),
                 environment: None,
             })
-    }
-
-    async fn update_environment(
-        &self,
-        name: &str,
-        new_name: Option<&str>,
-        new_description: Option<&str>,
-    ) -> Result<Environment, ZuulError> {
-        if let Some(n) = new_name {
-            validate_environment_name(n).map_err(ZuulError::Validation)?;
-        }
-
-        let mut registry = self.read_registry().await?;
-
-        let mut env = registry
-            .environments
-            .remove(name)
-            .ok_or_else(|| ZuulError::NotFound {
-                resource_type: ResourceType::Environment,
-                name: name.to_string(),
-                environment: None,
-            })?;
-
-        let final_name = new_name.unwrap_or(name);
-
-        // If renaming, check the new name isn't already taken.
-        if new_name.is_some() && registry.environments.contains_key(final_name) {
-            return Err(ZuulError::AlreadyExists {
-                resource_type: ResourceType::Environment,
-                name: final_name.to_string(),
-                environment: None,
-            });
-        }
-
-        if let Some(desc) = new_description {
-            env.description = Some(desc.to_string());
-        }
-        env.name = final_name.to_string();
-        env.updated_at = Utc::now();
-
-        registry
-            .environments
-            .insert(final_name.to_string(), env.clone());
-        self.write_registry(&registry).await?;
-
-        Ok(env)
-    }
-
-    async fn delete_environment(&self, name: &str) -> Result<(), ZuulError> {
-        validate_environment_name(name).map_err(ZuulError::Validation)?;
-        let mut registry = self.read_registry().await?;
-
-        if !registry.environments.contains_key(name) {
-            return Err(ZuulError::NotFound {
-                resource_type: ResourceType::Environment,
-                name: name.to_string(),
-                environment: None,
-            });
-        }
-
-        // Delete all secrets bound to this environment.
-        let filter = format!("labels.zuul-managed=true AND labels.zuul-env={name}");
-        let secrets = self.client.list_secrets(&filter).await?;
-        for secret in &secrets {
-            // Extract the secret ID from the full resource name
-            // (format: "projects/{project}/secrets/{id}")
-            if let Some(id) = secret.name.rsplit('/').next() {
-                self.client.delete_secret(id).await?;
-            }
-        }
-
-        registry.environments.remove(name);
-        self.write_registry(&registry).await?;
-
-        Ok(())
     }
 
     // --- Secret operations ---

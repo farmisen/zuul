@@ -20,8 +20,6 @@ const GITIGNORE_ENTRY: &str = ".zuul/";
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum OperationType {
-    EnvDelete,
-    EnvRename,
     Import,
 }
 
@@ -221,12 +219,12 @@ mod tests {
 
     fn sample_journal() -> Journal {
         Journal::new(
-            OperationType::EnvDelete,
-            serde_json::json!({ "environment": "staging" }),
+            OperationType::Import,
+            serde_json::json!({ "environment": "dev", "file": "secrets.env" }),
             vec![
-                step("delete_secret", "zuul__staging__DB_URL"),
-                step("delete_secret", "zuul__staging__API_KEY"),
-                step_no_target("update_registry"),
+                step("set_secret", "DB_URL"),
+                step("set_secret", "API_KEY"),
+                step_no_target("finalize"),
             ],
         )
     }
@@ -237,13 +235,10 @@ mod tests {
         let json = serde_json::to_string_pretty(&journal).unwrap();
         let parsed: Journal = serde_json::from_str(&json).unwrap();
 
-        assert_eq!(parsed.operation, OperationType::EnvDelete);
+        assert_eq!(parsed.operation, OperationType::Import);
         assert_eq!(parsed.steps.len(), 3);
-        assert_eq!(parsed.steps[0].action, "delete_secret");
-        assert_eq!(
-            parsed.steps[0].target.as_deref(),
-            Some("zuul__staging__DB_URL")
-        );
+        assert_eq!(parsed.steps[0].action, "set_secret");
+        assert_eq!(parsed.steps[0].target.as_deref(), Some("DB_URL"));
         assert_eq!(parsed.steps[0].status, StepStatus::Pending);
         assert!(parsed.steps[2].target.is_none());
     }
@@ -281,7 +276,7 @@ mod tests {
         // Save and load
         save_journal(dir.path(), &journal).unwrap();
         let loaded = load_journal(dir.path()).unwrap().unwrap();
-        assert_eq!(loaded.operation, OperationType::EnvDelete);
+        assert_eq!(loaded.operation, OperationType::Import);
         assert_eq!(loaded.steps.len(), 3);
 
         // .zuul/ directory was created
@@ -343,28 +338,6 @@ mod tests {
         let content = fs::read_to_string(dir.path().join(GITIGNORE_FILE)).unwrap();
         assert!(content.contains("node_modules/\n"));
         assert!(content.contains(GITIGNORE_ENTRY));
-    }
-
-    #[test]
-    fn rename_journal_serialization() {
-        let journal = Journal::new(
-            OperationType::EnvRename,
-            serde_json::json!({
-                "old_name": "staging",
-                "new_name": "staging-v2"
-            }),
-            vec![
-                step("rename_secret", "DB_URL"),
-                step("rename_secret", "API_KEY"),
-                step_no_target("update_registry"),
-            ],
-        );
-
-        let json = serde_json::to_string_pretty(&journal).unwrap();
-        let parsed: Journal = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed.operation, OperationType::EnvRename);
-        assert_eq!(parsed.params["old_name"], "staging");
-        assert_eq!(parsed.params["new_name"], "staging-v2");
     }
 
     #[test]

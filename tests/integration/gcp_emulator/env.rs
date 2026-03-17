@@ -1,53 +1,9 @@
 use crate::helpers::*;
 
-// ---------------------------------------------------------------------------
-// env create
-// ---------------------------------------------------------------------------
-
-#[test]
-#[ignore]
-fn env_create_basic() {
-    let bin = zuul_bin();
-    let dir = setup_project("integ-env-create");
-
-    let stdout = zuul_ok(bin, dir.path(), &["env", "create", "dev"]);
-    assert!(
-        stdout.contains("dev"),
-        "should confirm creation, got: {stdout}"
-    );
-}
-
-#[test]
-#[ignore]
-fn env_create_with_description() {
-    let bin = zuul_bin();
-    let dir = setup_project("integ-env-create-desc");
-
-    zuul_ok(
-        bin,
-        dir.path(),
-        &["env", "create", "staging", "--description", "Staging env"],
-    );
-    let stdout = zuul_ok(bin, dir.path(), &["env", "show", "staging"]);
-    assert!(
-        stdout.contains("Staging env"),
-        "should show description, got: {stdout}"
-    );
-}
-
-#[test]
-#[ignore]
-fn env_create_duplicate_fails() {
-    let bin = zuul_bin();
-    let dir = setup_project("integ-env-create-dup");
-
-    zuul_ok(bin, dir.path(), &["env", "create", "dev"]);
-    let stderr = zuul_err(bin, dir.path(), &["env", "create", "dev"]);
-    assert!(
-        stderr.contains("already exists") || stderr.contains("AlreadyExists"),
-        "should report duplicate, got: {stderr}"
-    );
-}
+// Note: `env create`, `env update`, and `env delete` were removed in item 5.14
+// (environment lifecycle moved to Terraform). Tests below that call `env create`
+// as a setup step will need updating to seed environments via Terraform or
+// direct backend calls once a test harness for that is available.
 
 // ---------------------------------------------------------------------------
 // env list
@@ -127,140 +83,6 @@ fn env_show_nonexistent_fails() {
     let stderr = zuul_err(bin, dir.path(), &["env", "show", "nope"]);
     assert!(
         stderr.contains("not") || stderr.contains("exist") || stderr.contains("found"),
-        "should report not found, got: {stderr}"
-    );
-}
-
-// ---------------------------------------------------------------------------
-// env update
-// ---------------------------------------------------------------------------
-
-#[test]
-#[ignore]
-fn env_update_description() {
-    let bin = zuul_bin();
-    let dir = setup_project("integ-env-update-desc");
-
-    zuul_ok(bin, dir.path(), &["env", "create", "dev"]);
-    zuul_ok(
-        bin,
-        dir.path(),
-        &["env", "update", "dev", "--description", "Updated desc"],
-    );
-    let stdout = zuul_ok(bin, dir.path(), &["env", "show", "dev"]);
-    assert!(
-        stdout.contains("Updated desc"),
-        "description should be updated, got: {stdout}"
-    );
-}
-
-#[test]
-#[ignore]
-fn env_update_rename_with_force() {
-    let bin = zuul_bin();
-    let dir = setup_project("integ-env-rename-force");
-
-    zuul_ok(bin, dir.path(), &["env", "create", "old-name"]);
-    zuul_ok(
-        bin,
-        dir.path(),
-        &["secret", "set", "-e", "old-name", "MY_KEY", "my_val"],
-    );
-
-    // Rename with --force bypasses confirmation
-    zuul_ok(
-        bin,
-        dir.path(),
-        &[
-            "env",
-            "update",
-            "old-name",
-            "--new-name",
-            "new-name",
-            "--force",
-        ],
-    );
-
-    // Old name should no longer exist in registry
-    let stderr = zuul_err(bin, dir.path(), &["env", "show", "old-name"]);
-    assert!(
-        stderr.contains("not") || stderr.contains("found"),
-        "old env should be gone, got: {stderr}"
-    );
-
-    // New name should exist in registry
-    let stdout = zuul_ok(bin, dir.path(), &["env", "show", "new-name"]);
-    assert!(stdout.contains("new-name"));
-
-    // Note: The underlying GCP secrets are NOT yet renamed by update_environment.
-    // The backend only updates the registry. Secret renaming is a known gap
-    // (update_environment does not rename zuul__old-name__* to zuul__new-name__*).
-}
-
-// ---------------------------------------------------------------------------
-// env delete
-// ---------------------------------------------------------------------------
-
-#[test]
-#[ignore]
-fn env_delete_dry_run() {
-    let bin = zuul_bin();
-    let dir = setup_project("integ-env-del-dry");
-
-    zuul_ok(bin, dir.path(), &["env", "create", "staging"]);
-
-    let stdout = zuul_ok(bin, dir.path(), &["env", "delete", "staging", "--dry-run"]);
-    assert!(
-        stdout.contains("dry") || stdout.contains("Dry") || stdout.contains("would"),
-        "should indicate dry run, got: {stdout}"
-    );
-
-    // Environment should still exist
-    let stdout = zuul_ok(bin, dir.path(), &["env", "list"]);
-    assert!(
-        stdout.contains("staging"),
-        "staging should survive dry run, got: {stdout}"
-    );
-}
-
-#[test]
-#[ignore]
-fn env_delete_force_cascades_secrets() {
-    let bin = zuul_bin();
-    let dir = setup_project("integ-env-del-cascade");
-
-    zuul_ok(bin, dir.path(), &["env", "create", "ephemeral"]);
-    zuul_ok(
-        bin,
-        dir.path(),
-        &["secret", "set", "-e", "ephemeral", "KEY_A", "val_a"],
-    );
-    zuul_ok(
-        bin,
-        dir.path(),
-        &["secret", "set", "-e", "ephemeral", "KEY_B", "val_b"],
-    );
-
-    // Delete with --force bypasses both confirmation prompts
-    zuul_ok(bin, dir.path(), &["env", "delete", "ephemeral", "--force"]);
-
-    // Environment should be gone
-    let stdout = zuul_ok(bin, dir.path(), &["env", "list"]);
-    assert!(
-        !stdout.contains("ephemeral"),
-        "env should be deleted, got: {stdout}"
-    );
-}
-
-#[test]
-#[ignore]
-fn env_delete_nonexistent_fails() {
-    let bin = zuul_bin();
-    let dir = setup_project("integ-env-del-missing");
-
-    let stderr = zuul_err(bin, dir.path(), &["env", "delete", "ghost"]);
-    assert!(
-        stderr.contains("not") || stderr.contains("found") || stderr.contains("exist"),
         "should report not found, got: {stderr}"
     );
 }
@@ -388,35 +210,6 @@ fn env_clear_dry_run() {
     // Secret should still exist
     let stdout = zuul_ok(bin, dir.path(), &["secret", "get", "-e", "dev", "KEY"]);
     assert_eq!(stdout.trim(), "val");
-}
-
-// ---------------------------------------------------------------------------
-// env delete without --force when secrets exist (should refuse)
-// ---------------------------------------------------------------------------
-
-#[test]
-#[ignore]
-fn env_delete_without_force_refuses_when_secrets_exist() {
-    let bin = zuul_bin();
-    let dir = setup_project("integ-env-del-noforce");
-
-    zuul_ok(bin, dir.path(), &["env", "create", "target"]);
-    zuul_ok(
-        bin,
-        dir.path(),
-        &["secret", "set", "-e", "target", "KEY", "val"],
-    );
-
-    // Without --force in non-interactive mode → should refuse
-    let stderr = zuul_err(bin, dir.path(), &["env", "delete", "target"]);
-    assert!(
-        stderr.contains("Confirmation") || stderr.contains("force") || stderr.contains("confirm"),
-        "should refuse without --force, got: {stderr}"
-    );
-
-    // Environment should still exist
-    let stdout = zuul_ok(bin, dir.path(), &["env", "show", "target"]);
-    assert!(stdout.contains("target"));
 }
 
 // ---------------------------------------------------------------------------

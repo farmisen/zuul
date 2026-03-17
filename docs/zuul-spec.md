@@ -332,34 +332,19 @@ Error: No valid credentials found. Run 'zuul auth' to set up authentication.
 
 #### `zuul env`
 
-Manage environments.
+View environments and manage their secrets.
 
 ```
 zuul env list                                          # List all environments
-zuul env create <name> [--description <d>]             # Create a new environment (admin)
 zuul env show <name>                                   # Show environment details + secret count
-zuul env update <name> [--name <new>] [--description <d>]  # Update environment (admin)
-zuul env delete <name> [--force] [--dry-run]             # Delete environment (admin)
+zuul env copy <from> <to> [--force] [--dry-run]        # Copy all secrets between environments
+zuul env clear <name> [--force] [--dry-run]            # Delete all secrets (keeps environment)
+zuul env drain <name> [--force] [--dry-run]            # Delete all secrets (Terraform pre-destroy helper)
 ```
 
-All mutating `env` commands (create, update, delete) require admin-level access (write permission on the `zuul__registry` secret).
+**Environment lifecycle (create, update, delete) is managed by Terraform**, not the CLI. Environments are infrastructure — they define IAM security boundaries and must be managed alongside their permission bindings. See [`terraform/`](../terraform/) and the [Environment Admin Playbook](env-admin-playbook.md) for details.
 
-`env update --name` renames an environment. This updates the registry **and** renames all associated GCP secrets (from `zuul__old__{name}` to `zuul__new__{name}`). Since this is a non-atomic operation across multiple secrets, zuul should confirm interactively and report progress. If interrupted, `zuul env update --name` can be re-run — it is idempotent (skips already-renamed secrets).
-
-`env delete --force` deletes the environment **and** all its secrets. Without `--force`, it refuses if any secrets are bound to the environment. `--dry-run` lists all resources that would be affected without making changes:
-
-```
-$ zuul env delete staging --force --dry-run
-Dry run: the following resources would be deleted:
-
-  Environment: staging
-  Secrets (3):
-    - zuul__staging__DATABASE_URL
-    - zuul__staging__STRIPE_KEY
-    - zuul__staging__API_SECRET
-
-No changes were made. Remove --dry-run to execute.
-```
+`env drain` is functionally identical to `env clear` but named to signal its role as a Terraform `local-exec` pre-destroy provisioner. Use it to remove all bound secrets before `terraform destroy` removes the environment from the registry.
 
 #### `zuul secret`
 

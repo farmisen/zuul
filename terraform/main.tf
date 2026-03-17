@@ -21,14 +21,21 @@ resource "google_project_service" "secret_manager" {
 
 # --- Zuul environment registry ---
 
+# Terraform owns the environment registry — `terraform apply` is the single
+# source of truth for which environments exist and their IAM bindings.
+#
+# `plantimestamp()` (Terraform ≥ 1.5) is evaluated once at plan time and
+# stays constant across the apply, so it does NOT cause perpetual drift
+# the way `timestamp()` would.  The timestamps here are informational —
+# they record when the plan that last touched the environment was created.
 locals {
   registry_json = jsonencode({
     version = 1
     environments = {
       for env in var.environments : env => {
         description = lookup(var.environment_descriptions, env, null)
-        created_at  = timestamp()
-        updated_at  = timestamp()
+        created_at  = plantimestamp()
+        updated_at  = plantimestamp()
       }
     }
   })
@@ -52,8 +59,4 @@ resource "google_secret_manager_secret" "registry" {
 resource "google_secret_manager_secret_version" "registry" {
   secret      = google_secret_manager_secret.registry.id
   secret_data = local.registry_json
-
-  lifecycle {
-    ignore_changes = [secret_data]
-  }
 }

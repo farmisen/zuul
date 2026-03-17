@@ -17,29 +17,11 @@ pub trait Backend: Send + Sync {
     fn list_environments(&self)
     -> impl Future<Output = Result<Vec<Environment>, ZuulError>> + Send;
 
-    /// Create a new environment with an optional description.
-    fn create_environment(
-        &self,
-        name: &str,
-        description: Option<&str>,
-    ) -> impl Future<Output = Result<Environment, ZuulError>> + Send;
-
     /// Get a single environment by name.
     fn get_environment(
         &self,
         name: &str,
     ) -> impl Future<Output = Result<Environment, ZuulError>> + Send;
-
-    /// Update an environment's name and/or description.
-    fn update_environment(
-        &self,
-        name: &str,
-        new_name: Option<&str>,
-        new_description: Option<&str>,
-    ) -> impl Future<Output = Result<Environment, ZuulError>> + Send;
-
-    /// Delete an environment and all its bound secrets.
-    fn delete_environment(&self, name: &str) -> impl Future<Output = Result<(), ZuulError>> + Send;
 
     // --- Secret operations ---
 

@@ -58,8 +58,8 @@ pub fn run(
         dir.display()
     );
     println!("\nNext steps:");
-    println!("  zuul auth          # Set up GCP authentication");
-    println!("  zuul env create    # Create your first environment");
+    println!("  cd terraform && terraform apply   # Provision environments and IAM");
+    println!("  zuul auth                         # Set up GCP authentication");
 
     Ok(())
 }

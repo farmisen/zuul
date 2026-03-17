@@ -94,7 +94,7 @@ See [`terraform/README.md`](terraform/README.md) for details on IAM bindings, pe
 |---------|-------------|
 | `zuul init` | Initialize a new project |
 | `zuul auth` | Set up GCP authentication |
-| `zuul env list\|create\|show\|update\|delete` | Manage environments |
+| `zuul env list\|show\|copy\|clear\|drain` | View and manage environment secrets |
 | `zuul secret list\|get\|set\|delete\|info\|copy` | Manage secrets |
 | `zuul secret metadata list\|set\|delete` | Manage secret metadata |
 | `zuul export` | Export secrets in various formats |

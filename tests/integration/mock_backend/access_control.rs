@@ -7,7 +7,7 @@ use zuul::backend::Backend;
 use zuul::cli::{self, ExportFormat, OutputFormat};
 use zuul::config::Config;
 use zuul::error::ZuulError;
-use zuul::progress::{BatchContext, ProgressOpts};
+use zuul::progress::ProgressOpts;
 
 use super::common::{AccessLevel, MockBackend};
 
@@ -20,20 +20,10 @@ const PROGRESS: ProgressOpts = ProgressOpts {
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn admin_can_create_and_list_environments() {
+async fn admin_can_list_environments() {
     let backend = MockBackend::new(AccessLevel::Admin);
-
-    cli::env::create(&backend, "dev", Some("Development"), &OutputFormat::Text)
-        .await
-        .unwrap();
-    cli::env::create(
-        &backend,
-        "production",
-        Some("Production"),
-        &OutputFormat::Text,
-    )
-    .await
-    .unwrap();
+    backend.seed_environment("dev", Some("Development"));
+    backend.seed_environment("production", Some("Production"));
 
     cli::env::list(&backend, &OutputFormat::Text).await.unwrap();
 }
@@ -50,17 +40,48 @@ async fn admin_can_get_production_secret() {
 }
 
 #[tokio::test]
-async fn admin_can_delete_environment() {
+async fn admin_can_clear_environment() {
     let backend = MockBackend::new(AccessLevel::Admin);
     backend.seed_environment("staging", None);
+    backend.seed_secret("KEY", "staging", "val");
 
-    let ctx = BatchContext {
-        progress: PROGRESS,
-        project_root: None,
-    };
-    cli::env::delete(&backend, "staging", true, false, &OutputFormat::Text, &ctx)
-        .await
-        .unwrap();
+    cli::env::clear(
+        &backend,
+        "staging",
+        true,
+        false,
+        &OutputFormat::Text,
+        PROGRESS,
+    )
+    .await
+    .unwrap();
+
+    assert!(!backend.has_secret("KEY", "staging"));
+}
+
+#[tokio::test]
+async fn admin_can_drain_environment() {
+    let backend = MockBackend::new(AccessLevel::Admin);
+    backend.seed_environment("staging", None);
+    backend.seed_secret("DB_URL", "staging", "postgres://staging");
+    backend.seed_secret("API_KEY", "staging", "sk_staging");
+
+    // drain is functionally identical to clear — deletes secrets, keeps env.
+    cli::env::clear(
+        &backend,
+        "staging",
+        true,
+        false,
+        &OutputFormat::Text,
+        PROGRESS,
+    )
+    .await
+    .unwrap();
+
+    assert!(!backend.has_secret("DB_URL", "staging"));
+    assert!(!backend.has_secret("API_KEY", "staging"));
+    // Environment still exists after drain.
+    backend.get_environment("staging").await.unwrap();
 }
 
 // ---------------------------------------------------------------------------
@@ -144,36 +165,6 @@ async fn dev_scoped_export_production_denied_via_handler() {
 }
 
 #[tokio::test]
-async fn dev_scoped_cannot_create_env_via_handler() {
-    let backend = MockBackend::new(AccessLevel::Scoped(vec!["dev".to_string()]));
-
-    let err = cli::env::create(&backend, "staging", None, &OutputFormat::Text)
-        .await
-        .unwrap_err();
-    match &err {
-        ZuulError::PermissionDenied { resource } => {
-            assert!(resource.contains("registry"), "got: {resource}");
-        }
-        other => panic!("expected PermissionDenied, got: {other}"),
-    }
-}
-
-#[tokio::test]
-async fn dev_scoped_cannot_delete_env_via_handler() {
-    let backend = MockBackend::new(AccessLevel::Scoped(vec!["dev".to_string()]));
-    backend.seed_environment("dev", None);
-
-    let ctx = BatchContext {
-        progress: PROGRESS,
-        project_root: None,
-    };
-    let err = cli::env::delete(&backend, "dev", true, false, &OutputFormat::Text, &ctx)
-        .await
-        .unwrap_err();
-    assert!(matches!(err, ZuulError::PermissionDenied { .. }));
-}
-
-#[tokio::test]
 async fn dev_scoped_env_list_fails_when_unauthorized_envs_exist() {
     let backend = MockBackend::new(AccessLevel::Scoped(vec!["dev".to_string()]));
     backend.seed_environment("dev", None);
@@ -253,16 +244,6 @@ async fn unauthenticated_get_secret_fails_via_handler() {
     backend.seed_secret("KEY", "dev", "val");
 
     let err = cli::secret::get(&backend, "KEY", Some("dev"), PROGRESS)
-        .await
-        .unwrap_err();
-    assert!(matches!(err, ZuulError::Auth(_)));
-}
-
-#[tokio::test]
-async fn unauthenticated_create_env_fails_via_handler() {
-    let backend = MockBackend::new(AccessLevel::Unauthenticated);
-
-    let err = cli::env::create(&backend, "dev", None, &OutputFormat::Text)
         .await
         .unwrap_err();
     assert!(matches!(err, ZuulError::Auth(_)));

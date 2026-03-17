@@ -1,6 +1,9 @@
 use clap::Parser;
 use zuul::cli::{Cli, Command, EnvCommand, ExportFormat, SecretCommand};
 
+// Note: EnvCommand::Create, Update, Delete were removed in item 5.14
+// (environment lifecycle moved to Terraform).
+
 /// Helper to parse args, prepending the binary name.
 fn parse(args: &[&str]) -> Cli {
     let mut full = vec!["zuul"];
@@ -44,36 +47,22 @@ fn env_list() {
 }
 
 #[test]
-fn env_create_with_description() {
-    let cli = parse(&["env", "create", "staging", "--description", "Pre-prod"]);
-    match cli.command {
-        Command::Env {
-            command: EnvCommand::Create { name, description },
-        } => {
-            assert_eq!(name, "staging");
-            assert_eq!(description.as_deref(), Some("Pre-prod"));
-        }
-        _ => panic!("expected Env Create"),
-    }
-}
-
-#[test]
-fn env_delete_dry_run() {
-    let cli = parse(&["env", "delete", "staging", "--dry-run"]);
+fn env_drain() {
+    let cli = parse(&["env", "drain", "staging", "--force"]);
     match cli.command {
         Command::Env {
             command:
-                EnvCommand::Delete {
+                EnvCommand::Drain {
                     name,
                     force,
                     dry_run,
                 },
         } => {
             assert_eq!(name, "staging");
-            assert!(!force);
-            assert!(dry_run);
+            assert!(force);
+            assert!(!dry_run);
         }
-        _ => panic!("expected Env Delete"),
+        _ => panic!("expected Env Drain"),
     }
 }
 
