@@ -52,8 +52,7 @@ async fn create_backend(config: &Config) -> Result<BackendKind, ZuulError> {
         "gcp-secret-manager" => {
             let project_id = config.project_id.as_deref().ok_or_else(|| {
                 ZuulError::Config(
-                    "No GCP project ID configured. Run 'zuul init' to set up your project."
-                        .to_string(),
+                    "No project ID configured. Run 'zuul init' to set up your project.".to_string(),
                 )
             })?;
             let client = GcpClient::new(project_id, config.credentials.as_deref()).await?;
@@ -74,6 +73,11 @@ async fn create_backend(config: &Config) -> Result<BackendKind, ZuulError> {
             let identity = config.identity.as_ref().map(std::path::PathBuf::from);
             Ok(BackendKind::File(FileBackend::new(store_path, identity)))
         }
+        "" => Err(ZuulError::Config(
+            "No backend configured. Run 'zuul init --backend <type>' to set up your project. \
+             Supported backends: gcp-secret-manager, file."
+                .to_string(),
+        )),
         other => Err(ZuulError::Config(format!(
             "Unknown backend type '{other}'. Supported: gcp-secret-manager, file."
         ))),

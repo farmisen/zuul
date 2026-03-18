@@ -90,7 +90,7 @@ async fn dev_scoped_get_production_secret_denied_via_handler() {
     );
     let msg = err.to_string();
     assert!(
-        msg.contains("Permission denied") && msg.contains("IAM"),
+        msg.contains("Permission denied") && msg.contains("permissions"),
         "msg: {msg}"
     );
 }
@@ -248,7 +248,10 @@ async fn permission_denied_message_contains_resource_and_iam_hint() {
 
     assert!(msg.contains("Permission denied"), "msg: {msg}");
     assert!(msg.contains("production"), "should reference env: {msg}");
-    assert!(msg.contains("IAM"), "should mention IAM: {msg}");
+    assert!(
+        msg.contains("permissions"),
+        "should mention permissions: {msg}"
+    );
 }
 
 #[tokio::test]

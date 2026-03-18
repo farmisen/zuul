@@ -17,7 +17,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 #[derive(Debug, Parser)]
 #[command(name = "zuul", version, about)]
 pub struct Cli {
-    /// Override GCP project ID
+    /// Override project identifier (GCP project ID, etc.)
     #[arg(long, global = true)]
     pub project: Option<String>,
 
@@ -56,12 +56,12 @@ pub enum OutputFormat {
 pub enum Command {
     /// Initialize a new zuul project in the current directory
     Init {
-        /// GCP project ID
+        /// Project identifier (GCP project ID, etc.)
         #[arg(long)]
         project: Option<String>,
 
-        /// Backend type
-        #[arg(long, default_value = "gcp-secret-manager")]
+        /// Backend type (gcp-secret-manager, file)
+        #[arg(long)]
         backend: String,
     },
 

@@ -124,7 +124,7 @@ async fn import_creates_and_cleans_journal() {
 
     std::fs::write(
         dir.path().join(".zuul.toml"),
-        "[backend]\ntype = \"gcp-secret-manager\"\n",
+        "[backend]\ntype = \"mock\"\n",
     )
     .unwrap();
 

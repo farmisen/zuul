@@ -6,7 +6,17 @@ fn init_creates_config_and_gitignore() {
     let bin = zuul_bin();
     let dir = tempfile::tempdir().unwrap();
 
-    let stdout = zuul_ok(bin, dir.path(), &["init", "--project", "my-gcp-project"]);
+    let stdout = zuul_ok(
+        bin,
+        dir.path(),
+        &[
+            "init",
+            "--backend",
+            "gcp-secret-manager",
+            "--project",
+            "my-gcp-project",
+        ],
+    );
     assert!(
         stdout.contains("Created") || stdout.contains("Initialized"),
         "should confirm creation, got: {stdout}"
@@ -38,7 +48,17 @@ fn init_fails_if_config_exists() {
     // Create an existing .zuul.toml
     std::fs::write(dir.path().join(".zuul.toml"), "existing").unwrap();
 
-    let stderr = zuul_err(bin, dir.path(), &["init", "--project", "test"]);
+    let stderr = zuul_err(
+        bin,
+        dir.path(),
+        &[
+            "init",
+            "--backend",
+            "gcp-secret-manager",
+            "--project",
+            "test",
+        ],
+    );
     assert!(
         stderr.contains("already exists"),
         "should refuse to overwrite, got: {stderr}"
@@ -54,7 +74,17 @@ fn init_appends_to_existing_gitignore() {
     // Create a pre-existing .gitignore
     std::fs::write(dir.path().join(".gitignore"), "node_modules/\n").unwrap();
 
-    zuul_ok(bin, dir.path(), &["init", "--project", "test-proj"]);
+    zuul_ok(
+        bin,
+        dir.path(),
+        &[
+            "init",
+            "--backend",
+            "gcp-secret-manager",
+            "--project",
+            "test-proj",
+        ],
+    );
 
     let gitignore = std::fs::read_to_string(dir.path().join(".gitignore")).unwrap();
     assert!(
@@ -80,7 +110,17 @@ fn init_skips_gitignore_if_already_listed() {
     )
     .unwrap();
 
-    zuul_ok(bin, dir.path(), &["init", "--project", "test-proj"]);
+    zuul_ok(
+        bin,
+        dir.path(),
+        &[
+            "init",
+            "--backend",
+            "gcp-secret-manager",
+            "--project",
+            "test-proj",
+        ],
+    );
 
     let gitignore = std::fs::read_to_string(dir.path().join(".gitignore")).unwrap();
     // Should not duplicate
@@ -120,7 +160,11 @@ fn init_without_project_in_non_interactive_fails() {
     let dir = tempfile::tempdir().unwrap();
 
     // No --project and non-interactive mode → should fail
-    let stderr = zuul_err(bin, dir.path(), &["init"]);
+    let stderr = zuul_err(
+        bin,
+        dir.path(),
+        &["init", "--backend", "gcp-secret-manager"],
+    );
     assert!(
         stderr.contains("Input required") || stderr.contains("project"),
         "should ask for project ID, got: {stderr}"

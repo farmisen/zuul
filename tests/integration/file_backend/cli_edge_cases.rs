@@ -17,9 +17,9 @@ fn no_config_file_fails_with_message() {
     // No .zuul.toml — should fail with a helpful message.
     let stderr = zuul_err(bin, dir.path(), &["env", "list"]);
     assert!(
-        stderr.contains("No GCP project ID")
+        stderr.contains("No backend configured")
             || stderr.contains("init")
-            || stderr.contains("config"),
+            || stderr.contains("zuul init"),
         "should suggest running init, got: {stderr}"
     );
 }

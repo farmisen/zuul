@@ -95,7 +95,7 @@ impl fmt::Display for ZuulError {
             ZuulError::PermissionDenied { resource } => write!(
                 f,
                 "Permission denied for '{resource}'. \
-                 Ensure your GCP identity has the required IAM permissions on this resource."
+                 Ensure you have the required permissions for the configured backend."
             ),
 
             ZuulError::Validation(msg) => write!(f, "{msg}"),
@@ -179,7 +179,7 @@ mod tests {
         let msg = err.to_string();
         assert!(msg.contains("Permission denied"));
         assert!(msg.contains("zuul__production__DB_URL"));
-        assert!(msg.contains("IAM permissions"));
+        assert!(msg.contains("required permissions"));
     }
 
     #[test]

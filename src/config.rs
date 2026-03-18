@@ -21,7 +21,7 @@ struct ConfigFile {
 }
 
 /// The `[backend]` section of `.zuul.toml`.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Default)]
 #[serde(default)]
 struct BackendConfig {
     #[serde(rename = "type")]
@@ -32,18 +32,6 @@ struct BackendConfig {
     path: Option<String>,
     /// Path to an age identity file (file backend only).
     identity: Option<String>,
-}
-
-impl Default for BackendConfig {
-    fn default() -> Self {
-        Self {
-            backend_type: "gcp-secret-manager".to_string(),
-            project_id: None,
-            credentials: None,
-            path: None,
-            identity: None,
-        }
-    }
 }
 
 /// The `[defaults]` section of `.zuul.toml`.
@@ -229,7 +217,7 @@ mod tests {
         write_config(dir.path(), CONFIG_FILE, "[backend]\n");
 
         let config = load_config(dir.path(), &CliOverrides::default()).unwrap();
-        assert_eq!(config.backend_type, "gcp-secret-manager");
+        assert_eq!(config.backend_type, "");
         assert_eq!(config.project_id, None);
         assert_eq!(config.default_environment, None);
     }
@@ -239,7 +227,7 @@ mod tests {
     fn no_config_file_uses_defaults() {
         let dir = tempfile::tempdir().unwrap();
         let config = load_config(dir.path(), &CliOverrides::default()).unwrap();
-        assert_eq!(config.backend_type, "gcp-secret-manager");
+        assert_eq!(config.backend_type, "");
         assert_eq!(config.project_id, None);
     }
 

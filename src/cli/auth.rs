@@ -11,24 +11,37 @@ use crate::prompt;
 
 /// Run the `zuul auth` command.
 ///
-/// In interactive mode, checks credentials and offers to run
-/// `gcloud auth application-default login` if they are missing.
-/// In `--check` mode, validates silently and returns an error on failure.
+/// Dispatches to the appropriate backend-specific auth flow.
 pub async fn run(config: &Config, check: bool, non_interactive: bool) -> Result<(), ZuulError> {
+    match config.backend_type.as_str() {
+        "gcp-secret-manager" => run_gcp(config, check, non_interactive).await,
+        "file" => run_file(config, check),
+        other => Err(ZuulError::Config(format!(
+            "Unknown backend type '{other}'. Supported: gcp-secret-manager, file."
+        ))),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// GCP auth flow
+// ---------------------------------------------------------------------------
+
+/// GCP-specific auth: check ADC credentials, optionally run gcloud login.
+async fn run_gcp(config: &Config, check: bool, non_interactive: bool) -> Result<(), ZuulError> {
     let project_id = config.project_id.as_deref().ok_or_else(|| {
         ZuulError::Config(
-            "No GCP project ID configured. Run 'zuul init' to set up your project.".to_string(),
+            "No project ID configured. Run 'zuul init' to set up your project.".to_string(),
         )
     })?;
 
     if !check {
-        println!("Checking credentials for GCP project '{project_id}'...");
+        println!("Checking credentials for project '{project_id}'...");
     }
 
     let credentials = config.credentials.as_deref();
 
-    match try_connect(project_id, credentials).await {
-        Ok(backend) => print_success(&backend, project_id, check).await,
+    match try_gcp_connect(project_id, credentials).await {
+        Ok(backend) => print_gcp_success(&backend, project_id, check).await,
         Err(e) if check => Err(e),
         Err(_) => {
             println!("No valid credentials found.");
@@ -38,33 +51,30 @@ pub async fn run(config: &Config, check: bool, non_interactive: bool) -> Result<
                 false,
                 non_interactive,
             )? {
-                return Err(ZuulError::Auth(
-                    "Authentication required. Run 'zuul auth' when ready.".to_string(),
-                ));
+                return Err(ZuulError::Auth("Authentication required.".to_string()));
             }
 
             run_gcloud_login()?;
 
-            // Retry after login
-            let backend = try_connect(project_id, credentials).await?;
-            print_success(&backend, project_id, false).await
+            let backend = try_gcp_connect(project_id, credentials).await?;
+            print_gcp_success(&backend, project_id, false).await
         }
     }
 }
 
-/// Attempt to create a GCP client and verify connectivity by listing secrets.
-async fn try_connect(project_id: &str, credentials: Option<&str>) -> Result<GcpBackend, ZuulError> {
+/// Attempt to create a GCP client and verify connectivity.
+async fn try_gcp_connect(
+    project_id: &str,
+    credentials: Option<&str>,
+) -> Result<GcpBackend, ZuulError> {
     let client = GcpClient::new(project_id, credentials).await?;
     let backend = GcpBackend::new(client);
-
-    // Verify we can actually reach the project by listing secrets.
     backend.list_secrets(None).await?;
-
     Ok(backend)
 }
 
-/// Print authentication success info.
-async fn print_success(
+/// Print GCP authentication success info.
+async fn print_gcp_success(
     backend: &impl Backend,
     project_id: &str,
     check: bool,
@@ -74,7 +84,7 @@ async fn print_success(
     }
 
     println!(
-        "{} Authenticated to GCP project '{project_id}'.",
+        "{} Authenticated to project '{project_id}'.",
         style("✔").green()
     );
 
@@ -82,7 +92,7 @@ async fn print_success(
         Ok(envs) if envs.is_empty() => {
             println!("No environments configured yet.");
             println!("\nNext step:");
-            println!("  zuul env create <name>   # Create your first environment");
+            println!("  terraform apply   # Create environments via Terraform");
         }
         Ok(envs) => {
             let names: Vec<&str> = envs.iter().map(|e| e.name.as_str()).collect();
@@ -90,7 +100,6 @@ async fn print_success(
             println!("\nReady to go! Try: zuul secret list --env {}", names[0]);
         }
         Err(_) => {
-            // Could list secrets but not read registry — limited access
             println!("Credentials valid. Could not read environment list (limited permissions).");
         }
     }
@@ -118,6 +127,65 @@ fn run_gcloud_login() -> Result<(), ZuulError> {
         ));
     }
 
-    println!();
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// File backend auth flow
+// ---------------------------------------------------------------------------
+
+/// File backend auth: validate the passphrase can decrypt the store.
+fn run_file(config: &Config, check: bool) -> Result<(), ZuulError> {
+    use crate::backend::file_backend::{DEFAULT_STORE_FILE, FileBackend};
+
+    let config_dir = config.config_dir.as_deref().ok_or_else(|| {
+        ZuulError::Config(
+            "No .zuul.toml found. Run 'zuul init' to set up your project.".to_string(),
+        )
+    })?;
+
+    let default_path = config_dir.join(DEFAULT_STORE_FILE);
+    let store_path = config
+        .file_path
+        .as_ref()
+        .map(std::path::PathBuf::from)
+        .unwrap_or(default_path);
+
+    if !store_path.exists() {
+        return Err(ZuulError::Config(format!(
+            "Store file '{}' not found. Run 'zuul init --backend file' to create it.",
+            store_path.display()
+        )));
+    }
+
+    let identity = config.identity.as_ref().map(std::path::PathBuf::from);
+    let backend = FileBackend::new(store_path, identity);
+
+    // Try to read the store — this validates the passphrase.
+    match tokio::runtime::Handle::current().block_on(backend.list_environments()) {
+        Ok(envs) => {
+            if check {
+                return Ok(());
+            }
+            println!("{} Authentication valid.", style("✔").green());
+            if envs.is_empty() {
+                println!("No environments configured yet.");
+                println!("\nNext step:");
+                println!("  zuul env create <name>   # Create your first environment");
+            } else {
+                let names: Vec<&str> = envs.iter().map(|e| e.name.as_str()).collect();
+                println!("Accessible environments: {}", names.join(", "));
+                println!("\nReady to go! Try: zuul secret list --env {}", names[0]);
+            }
+            Ok(())
+        }
+        Err(e) => {
+            if check {
+                return Err(e);
+            }
+            Err(ZuulError::Auth(
+                "Failed to decrypt store. Check your passphrase.".to_string(),
+            ))
+        }
+    }
 }

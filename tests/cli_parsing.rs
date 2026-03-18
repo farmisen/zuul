@@ -12,14 +12,23 @@ fn parse(args: &[&str]) -> Cli {
 }
 
 #[test]
-fn init_default() {
-    let cli = parse(&["init"]);
-    assert!(matches!(cli.command, Command::Init { .. }));
+fn init_with_backend() {
+    let cli = parse(&["init", "--backend", "file"]);
+    match cli.command {
+        Command::Init { backend, .. } => assert_eq!(backend, "file"),
+        _ => panic!("expected Init"),
+    }
 }
 
 #[test]
 fn init_with_project() {
-    let cli = parse(&["init", "--project", "my-proj"]);
+    let cli = parse(&[
+        "init",
+        "--backend",
+        "gcp-secret-manager",
+        "--project",
+        "my-proj",
+    ]);
     match cli.command {
         Command::Init { project, .. } => assert_eq!(project.as_deref(), Some("my-proj")),
         _ => panic!("expected Init"),
