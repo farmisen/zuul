@@ -150,7 +150,7 @@ Use `zuul --help` or `zuul <command> --help` for details.
 | Variable | Description |
 |----------|-------------|
 | `ZUUL_GCP_PROJECT` | Override GCP project ID |
-| `ZUUL_GCP_CREDENTIALS` | Path to GCP service account key file |
+| `ZUUL_GCP_CREDENTIALS` | GCP service account key: file path or inline JSON |
 
 **Resolution order** (highest priority first): CLI flags → environment variables → `.zuul.local.toml` (secrets only) → `.zuul.toml` → built-in defaults.
 

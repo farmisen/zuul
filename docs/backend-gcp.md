@@ -37,7 +37,7 @@ environment = "dev"
 | Variable | Description |
 |----------|-------------|
 | `ZUUL_GCP_PROJECT` | Override GCP project ID (takes precedence over `.zuul.toml`) |
-| `ZUUL_GCP_CREDENTIALS` | Path to GCP service account key file |
+| `ZUUL_GCP_CREDENTIALS` | GCP service account key: file path or inline JSON (see below) |
 
 ## Naming Convention
 
@@ -54,10 +54,19 @@ zuul__{environment}__{secret_name}
 
 ## Authentication
 
-Two modes:
+Three modes:
 
 1. **Application Default Credentials (ADC)** — `gcloud auth application-default login`. Default for local development.
 2. **Service Account Key File** — via `ZUUL_GCP_CREDENTIALS` env var or config `credentials` field. For CI/CD.
+3. **Inline JSON** — pass the service account key JSON directly via `ZUUL_GCP_CREDENTIALS`. Zuul auto-detects whether the value is a file path or inline JSON (starts with `{` → JSON, otherwise → file path). The JSON is written to a secure temporary file (mode 0600) at runtime and deleted on process exit. Useful for CI/CD platforms that inject secrets as environment variables rather than files.
+
+```bash
+# File path (existing behavior)
+export ZUUL_GCP_CREDENTIALS="/path/to/service-account.json"
+
+# Inline JSON (new)
+export ZUUL_GCP_CREDENTIALS='{"type":"service_account","project_id":"my-project",...}'
+```
 
 ## Permissions Model
 

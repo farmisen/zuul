@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::env;
+use std::io::Write;
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -45,14 +46,76 @@ fn retry_policy() -> ExponentialBuilder {
         .with_max_times(3)
 }
 
+/// Resolve a raw credentials value to a file path.
+///
+/// Resolution order:
+/// 1. If the value is a path to an existing file, use it directly.
+/// 2. Otherwise, try to parse it as inline JSON. If valid, write it to a
+///    secure temporary file (mode 0600) and return the temp file path.
+/// 3. If neither, return an error.
+///
+/// The caller must keep the returned `NamedTempFile` alive for as long as
+/// the credentials are needed — the file is deleted on drop.
+fn resolve_credentials(raw: &str) -> Result<(String, Option<tempfile::NamedTempFile>), ZuulError> {
+    let trimmed = raw.trim();
+
+    // 1. Check if it's an existing file path.
+    if std::path::Path::new(trimmed).is_file() {
+        return Ok((trimmed.to_string(), None));
+    }
+
+    // 2. Try to parse as inline JSON.
+    if serde_json::from_str::<serde_json::Value>(trimmed).is_ok() {
+        let mut tmp = tempfile::NamedTempFile::new().map_err(|e| {
+            ZuulError::Config(format!("Failed to create temporary credentials file: {e}"))
+        })?;
+
+        // Set restrictive permissions (Unix only).
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let perms = std::fs::Permissions::from_mode(0o600);
+            std::fs::set_permissions(tmp.path(), perms).map_err(|e| {
+                ZuulError::Config(format!(
+                    "Failed to set permissions on temporary credentials file: {e}"
+                ))
+            })?;
+        }
+
+        tmp.write_all(trimmed.as_bytes()).map_err(|e| {
+            ZuulError::Config(format!("Failed to write temporary credentials file: {e}"))
+        })?;
+        tmp.flush().map_err(|e| {
+            ZuulError::Config(format!("Failed to flush temporary credentials file: {e}"))
+        })?;
+
+        let path = tmp.path().to_string_lossy().into_owned();
+        return Ok((path, Some(tmp)));
+    }
+
+    // 3. Neither a file nor valid JSON.
+    Err(ZuulError::Config(format!(
+        "ZUUL_GCP_CREDENTIALS is not a valid file path (file not found) \
+         and not valid JSON: '{}'",
+        if trimmed.len() > 40 {
+            format!("{}...", &trimmed[..40])
+        } else {
+            trimmed.to_string()
+        }
+    )))
+}
+
 /// GCP Secret Manager client wrapper.
 ///
-/// Handles authentication via Application Default Credentials (ADC)
-/// or a service account key file. Token refresh is managed automatically
-/// by the underlying `gcloud-sdk` crate.
+/// Handles authentication via Application Default Credentials (ADC),
+/// a service account key file, or inline service account JSON. Token
+/// refresh is managed automatically by the underlying `gcloud-sdk` crate.
 pub struct GcpClient {
     pub(crate) client: GoogleApi<SecretManagerServiceClient<GoogleAuthMiddleware>>,
     pub(crate) project_id: String,
+    /// Holds the temporary credentials file (if inline JSON was provided).
+    /// Kept alive for the lifetime of the client; deleted automatically on drop.
+    _credentials_tempfile: Option<tempfile::NamedTempFile>,
 }
 
 impl GcpClient {
@@ -66,6 +129,8 @@ impl GcpClient {
     /// If `SECRET_MANAGER_EMULATOR_HOST` is set, connects to that endpoint
     /// with a dummy token (no real credentials needed).
     pub async fn new(project_id: &str, credentials_path: Option<&str>) -> Result<Self, ZuulError> {
+        let mut tempfile_handle: Option<tempfile::NamedTempFile> = None;
+
         let client = if let Ok(emulator_host) = env::var(EMULATOR_HOST_ENV) {
             // Connect to emulator without real credentials.
             let dummy_source: BoxSource = Box::new(EmulatorTokenSource);
@@ -83,7 +148,10 @@ impl GcpClient {
             let creds = credentials_path
                 .map(String::from)
                 .or_else(|| env::var("ZUUL_GCP_CREDENTIALS").ok());
-            if let Some(path) = creds {
+            if let Some(raw) = creds {
+                // Resolve inline JSON to a temp file, or use as file path.
+                let (path, tmp) = resolve_credentials(&raw)?;
+                tempfile_handle = tmp;
                 // SAFETY: called once during single-threaded client init, before tokio spawns tasks.
                 unsafe {
                     env::set_var("GOOGLE_APPLICATION_CREDENTIALS", path);
@@ -102,6 +170,7 @@ impl GcpClient {
         Ok(Self {
             client,
             project_id: project_id.to_string(),
+            _credentials_tempfile: tempfile_handle,
         })
     }
 
@@ -486,5 +555,78 @@ mod tests {
     fn not_retryable_internal() {
         let status = gcloud_sdk::tonic::Status::internal("bug");
         assert!(!is_retryable(&status));
+    }
+
+    // --- resolve_credentials tests ---
+
+    #[test]
+    fn resolve_credentials_existing_file() {
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        let file_path = tmp.path().to_str().unwrap();
+        let (path, handle) = resolve_credentials(file_path).unwrap();
+        assert_eq!(path, file_path);
+        assert!(handle.is_none());
+    }
+
+    #[test]
+    fn resolve_credentials_inline_json() {
+        let json = r#"{"type": "service_account", "project_id": "test"}"#;
+        let (path, tmp) = resolve_credentials(json).unwrap();
+        assert!(tmp.is_some());
+        let contents = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(contents, json);
+    }
+
+    #[test]
+    fn resolve_credentials_inline_json_with_whitespace() {
+        let json = r#"  { "type": "service_account" }  "#;
+        let (path, tmp) = resolve_credentials(json).unwrap();
+        assert!(tmp.is_some());
+        let contents = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(contents, json.trim());
+    }
+
+    #[test]
+    fn resolve_credentials_nonexistent_file_and_invalid_json() {
+        let bad = "/nonexistent/path/to/creds.json";
+        let result = resolve_credentials(bad);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("not a valid file path"),
+            "error should mention file not found, got: {err}"
+        );
+    }
+
+    #[test]
+    fn resolve_credentials_malformed_json() {
+        let bad = "{ not valid json ";
+        let result = resolve_credentials(bad);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("not valid JSON"),
+            "error should mention invalid JSON, got: {err}"
+        );
+    }
+
+    #[test]
+    fn resolve_credentials_tempfile_cleaned_on_drop() {
+        let json = r#"{"type": "service_account"}"#;
+        let (path, tmp) = resolve_credentials(json).unwrap();
+        assert!(std::path::Path::new(&path).exists());
+        drop(tmp);
+        assert!(!std::path::Path::new(&path).exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resolve_credentials_tempfile_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+        let json = r#"{"type": "service_account"}"#;
+        let (_path, tmp) = resolve_credentials(json).unwrap();
+        let tmp = tmp.unwrap();
+        let mode = std::fs::metadata(tmp.path()).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600);
     }
 }
