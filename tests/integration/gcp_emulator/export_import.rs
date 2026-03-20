@@ -5,12 +5,12 @@ use crate::helpers::*;
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn export_dotenv() {
     let bin = zuul_bin();
     let dir = setup_project("integ-export-dotenv");
 
-    zuul_ok(bin, dir.path(), &["env", "create", "dev"]);
+    create_envs(&dir, &["dev"]);
     zuul_ok(
         bin,
         dir.path(),
@@ -32,12 +32,12 @@ fn export_dotenv() {
 }
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn export_json() {
     let bin = zuul_bin();
     let dir = setup_project("integ-export-json");
 
-    zuul_ok(bin, dir.path(), &["env", "create", "dev"]);
+    create_envs(&dir, &["dev"]);
     zuul_ok(
         bin,
         dir.path(),
@@ -54,12 +54,12 @@ fn export_json() {
 }
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn export_yaml() {
     let bin = zuul_bin();
     let dir = setup_project("integ-export-yaml");
 
-    zuul_ok(bin, dir.path(), &["env", "create", "dev"]);
+    create_envs(&dir, &["dev"]);
     zuul_ok(
         bin,
         dir.path(),
@@ -78,12 +78,12 @@ fn export_yaml() {
 }
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn export_direnv() {
     let bin = zuul_bin();
     let dir = setup_project("integ-export-direnv");
 
-    zuul_ok(bin, dir.path(), &["env", "create", "dev"]);
+    create_envs(&dir, &["dev"]);
     zuul_ok(
         bin,
         dir.path(),
@@ -102,12 +102,12 @@ fn export_direnv() {
 }
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn export_shell() {
     let bin = zuul_bin();
     let dir = setup_project("integ-export-shell");
 
-    zuul_ok(bin, dir.path(), &["env", "create", "dev"]);
+    create_envs(&dir, &["dev"]);
     zuul_ok(
         bin,
         dir.path(),
@@ -130,12 +130,12 @@ fn export_shell() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn export_to_file() {
     let bin = zuul_bin();
     let dir = setup_project("integ-export-file");
 
-    zuul_ok(bin, dir.path(), &["env", "create", "dev"]);
+    create_envs(&dir, &["dev"]);
     zuul_ok(
         bin,
         dir.path(),
@@ -166,12 +166,12 @@ fn export_to_file() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn export_with_and_without_local_overrides() {
     let bin = zuul_bin();
     let dir = setup_project("integ-export-local");
 
-    zuul_ok(bin, dir.path(), &["env", "create", "dev"]);
+    create_envs(&dir, &["dev"]);
     zuul_ok(
         bin,
         dir.path(),
@@ -223,12 +223,12 @@ fn export_with_and_without_local_overrides() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn import_dotenv() {
     let bin = zuul_bin();
     let dir = setup_project("integ-import-dotenv");
 
-    zuul_ok(bin, dir.path(), &["env", "create", "dev"]);
+    create_envs(&dir, &["dev"]);
 
     let env_file = dir.path().join("test.env");
     std::fs::write(
@@ -251,12 +251,12 @@ fn import_dotenv() {
 }
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn import_json() {
     let bin = zuul_bin();
     let dir = setup_project("integ-import-json");
 
-    zuul_ok(bin, dir.path(), &["env", "create", "dev"]);
+    create_envs(&dir, &["dev"]);
 
     let json_file = dir.path().join("secrets.json");
     std::fs::write(
@@ -280,12 +280,12 @@ fn import_json() {
 }
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn import_yaml() {
     let bin = zuul_bin();
     let dir = setup_project("integ-import-yaml");
 
-    zuul_ok(bin, dir.path(), &["env", "create", "dev"]);
+    create_envs(&dir, &["dev"]);
 
     let yaml_file = dir.path().join("secrets.yaml");
     std::fs::write(&yaml_file, "APP_NAME: my-app\nDEBUG: \"true\"\n").unwrap();
@@ -301,12 +301,12 @@ fn import_yaml() {
 }
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn import_dry_run() {
     let bin = zuul_bin();
     let dir = setup_project("integ-import-dry");
 
-    zuul_ok(bin, dir.path(), &["env", "create", "dev"]);
+    create_envs(&dir, &["dev"]);
 
     let env_file = dir.path().join("test.env");
     std::fs::write(&env_file, "NEW_KEY=new_val\n").unwrap();
@@ -337,12 +337,12 @@ fn import_dry_run() {
 }
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn import_skips_existing_by_default() {
     let bin = zuul_bin();
     let dir = setup_project("integ-import-skip");
 
-    zuul_ok(bin, dir.path(), &["env", "create", "dev"]);
+    create_envs(&dir, &["dev"]);
     zuul_ok(
         bin,
         dir.path(),
@@ -368,12 +368,12 @@ fn import_skips_existing_by_default() {
 }
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn import_overwrite_replaces_existing() {
     let bin = zuul_bin();
     let dir = setup_project("integ-import-overwrite");
 
-    zuul_ok(bin, dir.path(), &["env", "create", "dev"]);
+    create_envs(&dir, &["dev"]);
     zuul_ok(
         bin,
         dir.path(),
@@ -405,12 +405,12 @@ fn import_overwrite_replaces_existing() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn run_injects_secrets() {
     let bin = zuul_bin();
     let dir = setup_project("integ-run-inject");
 
-    zuul_ok(bin, dir.path(), &["env", "create", "dev"]);
+    create_envs(&dir, &["dev"]);
     zuul_ok(
         bin,
         dir.path(),
@@ -426,12 +426,12 @@ fn run_injects_secrets() {
 }
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn run_forwards_exit_code() {
     let bin = zuul_bin();
     let dir = setup_project("integ-run-exit");
 
-    zuul_ok(bin, dir.path(), &["env", "create", "dev"]);
+    create_envs(&dir, &["dev"]);
 
     let output = zuul(
         bin,
@@ -442,12 +442,12 @@ fn run_forwards_exit_code() {
 }
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn run_no_local_skips_overrides() {
     let bin = zuul_bin();
     let dir = setup_project("integ-run-nolocal");
 
-    zuul_ok(bin, dir.path(), &["env", "create", "dev"]);
+    create_envs(&dir, &["dev"]);
     zuul_ok(
         bin,
         dir.path(),
@@ -487,12 +487,12 @@ fn run_no_local_skips_overrides() {
 }
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn run_strips_zuul_env_vars() {
     let bin = zuul_bin();
     let dir = setup_project("integ-run-strip");
 
-    zuul_ok(bin, dir.path(), &["env", "create", "dev"]);
+    create_envs(&dir, &["dev"]);
 
     // Set a ZUUL_ env var in the parent; it should NOT be passed to child
     let output = std::process::Command::new(bin)
@@ -524,12 +524,12 @@ fn run_strips_zuul_env_vars() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn run_collision_warning_on_stderr() {
     let bin = zuul_bin();
     let dir = setup_project("integ-run-collision");
 
-    zuul_ok(bin, dir.path(), &["env", "create", "dev"]);
+    create_envs(&dir, &["dev"]);
     zuul_ok(
         bin,
         dir.path(),
@@ -563,12 +563,12 @@ fn run_collision_warning_on_stderr() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn export_multiline_value_dotenv() {
     let bin = zuul_bin();
     let dir = setup_project("integ-export-multiline");
 
-    zuul_ok(bin, dir.path(), &["env", "create", "dev"]);
+    create_envs(&dir, &["dev"]);
 
     let multiline = "line1\nline2\nline3";
     let file_path = dir.path().join("multi.txt");
@@ -618,14 +618,14 @@ fn export_multiline_value_dotenv() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn import_auto_detects_format_from_extension() {
     let bin = zuul_bin();
     let dir = setup_project("integ-import-autodetect");
 
-    zuul_ok(bin, dir.path(), &["env", "create", "dev"]);
+    create_envs(&dir, &["dev"]);
 
-    // .json extension → auto-detect as JSON (no --import-format needed)
+    // .json extension -> auto-detect as JSON (no --import-format needed)
     let json_file = dir.path().join("data.json");
     std::fs::write(&json_file, r#"{"AUTO_KEY": "auto_val"}"#).unwrap();
 
@@ -638,7 +638,7 @@ fn import_auto_detects_format_from_extension() {
     let stdout = zuul_ok(bin, dir.path(), &["secret", "get", "-e", "dev", "AUTO_KEY"]);
     assert_eq!(stdout.trim(), "auto_val");
 
-    // .yaml extension → auto-detect as YAML
+    // .yaml extension -> auto-detect as YAML
     let yaml_file = dir.path().join("data.yaml");
     std::fs::write(&yaml_file, "YAML_KEY: yaml_val\n").unwrap();
 

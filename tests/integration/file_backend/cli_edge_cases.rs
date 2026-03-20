@@ -166,6 +166,46 @@ fn info_nonexistent_secret_fails() {
 }
 
 // ---------------------------------------------------------------------------
+// Get nonexistent secret (env exists, secret does not)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn get_nonexistent_secret_fails() {
+    let dir = setup_project_with_env();
+    let bin = zuul_bin();
+
+    let stderr = zuul_err(
+        bin,
+        dir.path(),
+        &["secret", "get", "DOES_NOT_EXIST", "--env", "dev"],
+    );
+    assert!(
+        stderr.contains("not") || stderr.contains("found"),
+        "should report secret not found, got: {stderr}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Delete secret on nonexistent env fails
+// ---------------------------------------------------------------------------
+
+#[test]
+fn delete_secret_nonexistent_env_fails() {
+    let dir = setup_project_with_env();
+    let bin = zuul_bin();
+
+    let stderr = zuul_err(
+        bin,
+        dir.path(),
+        &["secret", "delete", "KEY", "--env", "nope", "--force"],
+    );
+    assert!(
+        stderr.contains("not") || stderr.contains("found"),
+        "should report env not found, got: {stderr}"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Name validation at CLI level
 // ---------------------------------------------------------------------------
 
@@ -313,5 +353,38 @@ fn json_format_on_error() {
     assert!(
         stderr.contains("not") || stderr.contains("found"),
         "should report error, got: {stderr}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Secret in one env not visible in another
+// ---------------------------------------------------------------------------
+
+#[test]
+fn secret_in_one_env_not_visible_in_another() {
+    let dir = setup_project();
+    let bin = zuul_bin();
+
+    zuul_ok(bin, dir.path(), &["env", "create", "dev"]);
+    zuul_ok(bin, dir.path(), &["env", "create", "staging"]);
+    zuul_ok(
+        bin,
+        dir.path(),
+        &["secret", "set", "DEV_ONLY", "-e", "dev", "secret_val"],
+    );
+
+    // Secret should be visible in dev
+    let stdout = zuul_ok(bin, dir.path(), &["secret", "get", "DEV_ONLY", "-e", "dev"]);
+    assert_eq!(stdout.trim(), "secret_val");
+
+    // Secret should NOT be visible in staging
+    let stderr = zuul_err(
+        bin,
+        dir.path(),
+        &["secret", "get", "DEV_ONLY", "-e", "staging"],
+    );
+    assert!(
+        stderr.contains("not") || stderr.contains("found"),
+        "secret from dev should not be visible in staging, got: {stderr}"
     );
 }

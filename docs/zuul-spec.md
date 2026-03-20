@@ -595,7 +595,7 @@ These are explicitly out of scope for the initial release:
 
 - **Language:** Rust
 - **CLI framework:** `clap` (derive API)
-- **GCP SDK:** `gcloud-sdk` crate with `google-cloud-secretmanager-v1` feature
+- **GCP SDK:** `google-cloud-secretmanager-v1` crate (official Google Cloud Rust SDK)
 - **Encryption:** `age` crate (v0.10) for file backend passphrase encryption
 - **File locking:** `fs2` crate for `flock`-based cross-process safety
 - **Config parsing:** `toml` crate

@@ -1,3 +1,5 @@
+//! CLI-level metadata tests for the file backend.
+
 use crate::helpers::*;
 
 // ---------------------------------------------------------------------------
@@ -5,16 +7,14 @@ use crate::helpers::*;
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "needs emulator: emulator REST gateway rejects updateMask query param"]
 fn metadata_set_and_list_single_env() {
+    let dir = setup_project_with_env();
     let bin = zuul_bin();
-    let dir = setup_project("integ-meta-single");
 
-    create_envs(&dir, &["dev"]);
     zuul_ok(
         bin,
         dir.path(),
-        &["secret", "set", "-e", "dev", "DB_URL", "postgres://"],
+        &["secret", "set", "DB_URL", "--env", "dev", "postgres://"],
     );
 
     zuul_ok(
@@ -24,9 +24,9 @@ fn metadata_set_and_list_single_env() {
             "secret",
             "metadata",
             "set",
-            "-e",
-            "dev",
             "DB_URL",
+            "--env",
+            "dev",
             "owner",
             "backend-team",
         ],
@@ -38,9 +38,9 @@ fn metadata_set_and_list_single_env() {
             "secret",
             "metadata",
             "set",
-            "-e",
-            "dev",
             "DB_URL",
+            "--env",
+            "dev",
             "rotate-by",
             "2026-06-01",
         ],
@@ -49,12 +49,24 @@ fn metadata_set_and_list_single_env() {
     let stdout = zuul_ok(
         bin,
         dir.path(),
-        &["secret", "metadata", "list", "-e", "dev", "DB_URL"],
+        &["secret", "metadata", "list", "DB_URL", "--env", "dev"],
     );
-    assert!(stdout.contains("owner"));
-    assert!(stdout.contains("backend-team"));
-    assert!(stdout.contains("rotate-by"));
-    assert!(stdout.contains("2026-06-01"));
+    assert!(
+        stdout.contains("owner"),
+        "should list owner key, got: {stdout}"
+    );
+    assert!(
+        stdout.contains("backend-team"),
+        "should list owner value, got: {stdout}"
+    );
+    assert!(
+        stdout.contains("rotate-by"),
+        "should list rotate-by key, got: {stdout}"
+    );
+    assert!(
+        stdout.contains("2026-06-01"),
+        "should list rotate-by value, got: {stdout}"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -62,22 +74,20 @@ fn metadata_set_and_list_single_env() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "needs emulator: emulator REST gateway rejects updateMask query param"]
 fn metadata_delete_single_env() {
+    let dir = setup_project_with_env();
     let bin = zuul_bin();
-    let dir = setup_project("integ-meta-del");
 
-    create_envs(&dir, &["dev"]);
     zuul_ok(
         bin,
         dir.path(),
-        &["secret", "set", "-e", "dev", "KEY", "val"],
+        &["secret", "set", "KEY", "--env", "dev", "val"],
     );
     zuul_ok(
         bin,
         dir.path(),
         &[
-            "secret", "metadata", "set", "-e", "dev", "KEY", "owner", "me",
+            "secret", "metadata", "set", "KEY", "--env", "dev", "owner", "me",
         ],
     );
 
@@ -85,11 +95,10 @@ fn metadata_delete_single_env() {
     zuul_ok(
         bin,
         dir.path(),
-        &["secret", "metadata", "delete", "-e", "dev", "KEY", "owner"],
+        &[
+            "secret", "metadata", "delete", "KEY", "--env", "dev", "owner",
+        ],
     );
-
-    // Verify deletion (emulator may or may not persist removal,
-    // so we just assert the delete command succeeded above)
 }
 
 // ---------------------------------------------------------------------------
@@ -97,21 +106,21 @@ fn metadata_delete_single_env() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "needs emulator: emulator REST gateway rejects updateMask query param"]
 fn metadata_set_cross_env() {
+    let dir = setup_project();
     let bin = zuul_bin();
-    let dir = setup_project("integ-meta-cross-set");
 
-    create_envs(&dir, &["dev", "staging"]);
+    zuul_ok(bin, dir.path(), &["env", "create", "dev"]);
+    zuul_ok(bin, dir.path(), &["env", "create", "staging"]);
     zuul_ok(
         bin,
         dir.path(),
-        &["secret", "set", "-e", "dev", "SHARED", "v1"],
+        &["secret", "set", "SHARED", "--env", "dev", "v1"],
     );
     zuul_ok(
         bin,
         dir.path(),
-        &["secret", "set", "-e", "staging", "SHARED", "v2"],
+        &["secret", "set", "SHARED", "--env", "staging", "v2"],
     );
 
     // Set metadata without --env -> should apply to all envs
@@ -132,7 +141,7 @@ fn metadata_set_cross_env() {
     let stdout = zuul_ok(
         bin,
         dir.path(),
-        &["secret", "metadata", "list", "-e", "dev", "SHARED"],
+        &["secret", "metadata", "list", "SHARED", "--env", "dev"],
     );
     assert!(
         stdout.contains("platform-team"),
@@ -143,7 +152,7 @@ fn metadata_set_cross_env() {
     let stdout = zuul_ok(
         bin,
         dir.path(),
-        &["secret", "metadata", "list", "-e", "staging", "SHARED"],
+        &["secret", "metadata", "list", "SHARED", "--env", "staging"],
     );
     assert!(
         stdout.contains("platform-team"),
@@ -152,17 +161,21 @@ fn metadata_set_cross_env() {
 }
 
 #[test]
-#[ignore = "needs emulator: emulator REST gateway rejects updateMask query param"]
 fn metadata_delete_cross_env() {
+    let dir = setup_project();
     let bin = zuul_bin();
-    let dir = setup_project("integ-meta-cross-del");
 
-    create_envs(&dir, &["dev", "staging"]);
-    zuul_ok(bin, dir.path(), &["secret", "set", "-e", "dev", "KEY", "a"]);
+    zuul_ok(bin, dir.path(), &["env", "create", "dev"]);
+    zuul_ok(bin, dir.path(), &["env", "create", "staging"]);
     zuul_ok(
         bin,
         dir.path(),
-        &["secret", "set", "-e", "staging", "KEY", "b"],
+        &["secret", "set", "KEY", "--env", "dev", "a"],
+    );
+    zuul_ok(
+        bin,
+        dir.path(),
+        &["secret", "set", "KEY", "--env", "staging", "b"],
     );
 
     // Set in both envs
@@ -181,17 +194,21 @@ fn metadata_delete_cross_env() {
 }
 
 #[test]
-#[ignore = "needs emulator: emulator REST gateway rejects updateMask query param"]
 fn metadata_list_cross_env() {
+    let dir = setup_project();
     let bin = zuul_bin();
-    let dir = setup_project("integ-meta-cross-list");
 
-    create_envs(&dir, &["dev", "staging"]);
-    zuul_ok(bin, dir.path(), &["secret", "set", "-e", "dev", "KEY", "a"]);
+    zuul_ok(bin, dir.path(), &["env", "create", "dev"]);
+    zuul_ok(bin, dir.path(), &["env", "create", "staging"]);
     zuul_ok(
         bin,
         dir.path(),
-        &["secret", "set", "-e", "staging", "KEY", "b"],
+        &["secret", "set", "KEY", "--env", "dev", "a"],
+    );
+    zuul_ok(
+        bin,
+        dir.path(),
+        &["secret", "set", "KEY", "--env", "staging", "b"],
     );
     zuul_ok(
         bin,
@@ -212,18 +229,15 @@ fn metadata_list_cross_env() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "needs emulator"]
 fn metadata_set_nonexistent_secret_fails() {
+    let dir = setup_project_with_env();
     let bin = zuul_bin();
-    let dir = setup_project("integ-meta-missing");
-
-    create_envs(&dir, &["dev"]);
 
     let stderr = zuul_err(
         bin,
         dir.path(),
         &[
-            "secret", "metadata", "set", "-e", "dev", "GHOST", "owner", "me",
+            "secret", "metadata", "set", "GHOST", "--env", "dev", "owner", "me",
         ],
     );
     assert!(

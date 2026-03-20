@@ -1,22 +1,16 @@
 use crate::helpers::*;
 
-// Note: `env create`, `env update`, and `env delete` were removed in item 5.14
-// (environment lifecycle moved to Terraform). Tests below that call `env create`
-// as a setup step will need updating to seed environments via Terraform or
-// direct backend calls once a test harness for that is available.
-
 // ---------------------------------------------------------------------------
 // env list
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn env_list_text_and_json() {
     let bin = zuul_bin();
     let dir = setup_project("integ-env-list");
 
-    zuul_ok(bin, dir.path(), &["env", "create", "dev"]);
-    zuul_ok(bin, dir.path(), &["env", "create", "staging"]);
+    create_envs(&dir, &["dev", "staging"]);
 
     // Text output
     let stdout = zuul_ok(bin, dir.path(), &["env", "list"]);
@@ -32,7 +26,7 @@ fn env_list_text_and_json() {
 }
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn env_list_empty() {
     let bin = zuul_bin();
     let dir = setup_project("integ-env-list-empty");
@@ -52,21 +46,16 @@ fn env_list_empty() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn env_show_text_and_json() {
     let bin = zuul_bin();
     let dir = setup_project("integ-env-show");
 
-    zuul_ok(
-        bin,
-        dir.path(),
-        &["env", "create", "dev", "--description", "Development"],
-    );
+    create_envs(&dir, &["dev"]);
 
     // Text
     let stdout = zuul_ok(bin, dir.path(), &["env", "show", "dev"]);
     assert!(stdout.contains("dev"));
-    assert!(stdout.contains("Development"));
 
     // JSON
     let stdout = zuul_ok(bin, dir.path(), &["--format", "json", "env", "show", "dev"]);
@@ -75,7 +64,7 @@ fn env_show_text_and_json() {
 }
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn env_show_nonexistent_fails() {
     let bin = zuul_bin();
     let dir = setup_project("integ-env-show-missing");
@@ -92,13 +81,12 @@ fn env_show_nonexistent_fails() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn env_copy_basic() {
     let bin = zuul_bin();
     let dir = setup_project("integ-env-copy");
 
-    zuul_ok(bin, dir.path(), &["env", "create", "source"]);
-    zuul_ok(bin, dir.path(), &["env", "create", "target"]);
+    create_envs(&dir, &["source", "target"]);
     zuul_ok(
         bin,
         dir.path(),
@@ -133,13 +121,12 @@ fn env_copy_basic() {
 }
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn env_copy_dry_run() {
     let bin = zuul_bin();
     let dir = setup_project("integ-env-copy-dry");
 
-    zuul_ok(bin, dir.path(), &["env", "create", "src"]);
-    zuul_ok(bin, dir.path(), &["env", "create", "dst"]);
+    create_envs(&dir, &["src", "dst"]);
     zuul_ok(
         bin,
         dir.path(),
@@ -161,12 +148,12 @@ fn env_copy_dry_run() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn env_clear_removes_secrets_keeps_env() {
     let bin = zuul_bin();
     let dir = setup_project("integ-env-clear");
 
-    zuul_ok(bin, dir.path(), &["env", "create", "dev"]);
+    create_envs(&dir, &["dev"]);
     zuul_ok(
         bin,
         dir.path(),
@@ -193,12 +180,12 @@ fn env_clear_removes_secrets_keeps_env() {
 }
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn env_clear_dry_run() {
     let bin = zuul_bin();
     let dir = setup_project("integ-env-clear-dry");
 
-    zuul_ok(bin, dir.path(), &["env", "create", "dev"]);
+    create_envs(&dir, &["dev"]);
     zuul_ok(
         bin,
         dir.path(),
@@ -217,13 +204,12 @@ fn env_clear_dry_run() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn env_copy_with_overlapping_secrets() {
     let bin = zuul_bin();
     let dir = setup_project("integ-env-copy-overlap");
 
-    zuul_ok(bin, dir.path(), &["env", "create", "source"]);
-    zuul_ok(bin, dir.path(), &["env", "create", "target"]);
+    create_envs(&dir, &["source", "target"]);
 
     zuul_ok(
         bin,

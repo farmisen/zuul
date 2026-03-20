@@ -1,10 +1,11 @@
 services:
   secret-manager-emulator:
     build:
-      context: https://github.com/blackwell-systems/gcp-secret-manager-emulator.git
+      context: https://github.com/farmisen/gcp-secret-manager-emulator.git
       args:
-        VARIANT: grpc
+        VARIANT: dual
     ports:
+      - "8080:8080"
       - "9090:9090"
     environment:
       - GCP_MOCK_LOG_LEVEL=info

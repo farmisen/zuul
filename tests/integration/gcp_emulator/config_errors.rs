@@ -1,7 +1,7 @@
 use crate::helpers::*;
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn no_config_file_fails_with_message() {
     let bin = zuul_bin();
     let dir = tempfile::tempdir().unwrap();
@@ -15,7 +15,7 @@ fn no_config_file_fails_with_message() {
 }
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn missing_project_id_fails_with_message() {
     let bin = zuul_bin();
     let dir = tempfile::tempdir().unwrap();
@@ -35,7 +35,7 @@ fn missing_project_id_fails_with_message() {
 }
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn json_format_on_error() {
     let bin = zuul_bin();
     let dir = setup_project("integ-cfg-json-err");

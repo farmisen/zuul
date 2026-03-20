@@ -1,13 +1,12 @@
 use crate::helpers::*;
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn diff_shows_differences() {
     let bin = zuul_bin();
     let dir = setup_project("integ-diff-basic");
 
-    zuul_ok(bin, dir.path(), &["env", "create", "dev"]);
-    zuul_ok(bin, dir.path(), &["env", "create", "staging"]);
+    create_envs(&dir, &["dev", "staging"]);
 
     // Same secret with different values in each env
     zuul_ok(
@@ -48,13 +47,12 @@ fn diff_shows_differences() {
 }
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn diff_show_values() {
     let bin = zuul_bin();
     let dir = setup_project("integ-diff-values");
 
-    zuul_ok(bin, dir.path(), &["env", "create", "dev"]);
-    zuul_ok(bin, dir.path(), &["env", "create", "staging"]);
+    create_envs(&dir, &["dev", "staging"]);
     zuul_ok(
         bin,
         dir.path(),
@@ -78,13 +76,12 @@ fn diff_show_values() {
 }
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn diff_identical_envs() {
     let bin = zuul_bin();
     let dir = setup_project("integ-diff-same");
 
-    zuul_ok(bin, dir.path(), &["env", "create", "dev"]);
-    zuul_ok(bin, dir.path(), &["env", "create", "staging"]);
+    create_envs(&dir, &["dev", "staging"]);
     zuul_ok(
         bin,
         dir.path(),
@@ -104,25 +101,24 @@ fn diff_identical_envs() {
 }
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn diff_empty_envs() {
     let bin = zuul_bin();
     let dir = setup_project("integ-diff-empty");
 
-    zuul_ok(bin, dir.path(), &["env", "create", "dev"]);
-    zuul_ok(bin, dir.path(), &["env", "create", "staging"]);
+    create_envs(&dir, &["dev", "staging"]);
 
     // Diff between empty envs should succeed
     let _stdout = zuul_ok(bin, dir.path(), &["diff", "dev", "staging"]);
 }
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn diff_nonexistent_env_fails() {
     let bin = zuul_bin();
     let dir = setup_project("integ-diff-missing");
 
-    zuul_ok(bin, dir.path(), &["env", "create", "dev"]);
+    create_envs(&dir, &["dev"]);
 
     let stderr = zuul_err(bin, dir.path(), &["diff", "dev", "ghost"]);
     assert!(
@@ -137,13 +133,12 @@ fn diff_nonexistent_env_fails() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn diff_asymmetric_secrets() {
     let bin = zuul_bin();
     let dir = setup_project("integ-diff-asym");
 
-    zuul_ok(bin, dir.path(), &["env", "create", "dev"]);
-    zuul_ok(bin, dir.path(), &["env", "create", "staging"]);
+    create_envs(&dir, &["dev", "staging"]);
 
     // DEV_ONLY exists only in dev
     zuul_ok(

@@ -13,9 +13,9 @@ use crate::models::{
 /// The GCP secret name used to store the environment registry.
 const REGISTRY_SECRET_ID: &str = "zuul__registry";
 
-/// Convert a protobuf `Timestamp` to a chrono `DateTime<Utc>`.
-fn proto_timestamp_to_chrono(ts: Option<gcloud_sdk::prost_types::Timestamp>) -> DateTime<Utc> {
-    ts.and_then(|t| DateTime::from_timestamp(t.seconds, t.nanos as u32))
+/// Convert a `google_cloud_wkt::Timestamp` to a chrono `DateTime<Utc>`.
+fn wkt_timestamp_to_chrono(ts: Option<google_cloud_wkt::Timestamp>) -> DateTime<Utc> {
+    ts.and_then(|t| DateTime::from_timestamp(t.seconds(), t.nanos() as u32))
         .unwrap_or_else(Utc::now)
 }
 
@@ -238,7 +238,7 @@ impl Backend for GcpBackend {
             }
         })?;
 
-        let created_at = proto_timestamp_to_chrono(secret_meta.create_time);
+        let created_at = wkt_timestamp_to_chrono(secret_meta.create_time);
 
         // Access the latest version for the value and version name.
         let (data, version_name) = self
@@ -596,18 +596,15 @@ mod tests {
     }
 
     #[test]
-    fn proto_timestamp_conversion() {
-        let ts = gcloud_sdk::prost_types::Timestamp {
-            seconds: 1710072000, // 2024-03-10T12:00:00Z
-            nanos: 0,
-        };
-        let dt = proto_timestamp_to_chrono(Some(ts));
+    fn wkt_timestamp_conversion() {
+        let ts = google_cloud_wkt::Timestamp::clamp(1710072000, 0); // 2024-03-10T12:00:00Z
+        let dt = wkt_timestamp_to_chrono(Some(ts));
         assert_eq!(dt.timestamp(), 1710072000);
     }
 
     #[test]
-    fn proto_timestamp_none_returns_now() {
-        let dt = proto_timestamp_to_chrono(None);
+    fn wkt_timestamp_none_returns_now() {
+        let dt = wkt_timestamp_to_chrono(None);
         // Should be very close to now
         let diff = (Utc::now() - dt).num_seconds().abs();
         assert!(diff < 2);

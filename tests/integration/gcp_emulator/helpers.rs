@@ -3,6 +3,8 @@ use std::process::{Command, Output, Stdio};
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU32, Ordering};
 
+use base64::Engine;
+
 /// Monotonic counter to make project IDs unique across tests within one run.
 static TEST_COUNTER: AtomicU32 = AtomicU32::new(0);
 
@@ -39,7 +41,7 @@ pub fn zuul(bin: &str, work_dir: &Path, args: &[&str]) -> Output {
     Command::new(bin)
         .args(&full_args)
         .current_dir(work_dir)
-        .env("SECRET_MANAGER_EMULATOR_HOST", "http://localhost:9090")
+        .env("SECRET_MANAGER_EMULATOR_HOST", "http://localhost:8080")
         .output()
         .unwrap_or_else(|e| panic!("failed to run zuul {}: {e}", args.join(" ")))
 }
@@ -71,27 +73,27 @@ pub fn zuul_err(bin: &str, work_dir: &Path, args: &[&str]) -> String {
     stderr
 }
 
-/// Run a zuul command with data piped to stdin.
-pub fn zuul_stdin(bin: &str, work_dir: &Path, args: &[&str], input: &str) -> Output {
-    use std::io::Write;
+/// Run a zuul command with stdin data piped in.
+pub fn zuul_stdin(bin: &str, work_dir: &Path, args: &[&str], stdin_data: &str) -> Output {
     let mut full_args = vec!["--non-interactive", "--no-color"];
     full_args.extend_from_slice(args);
     let mut child = Command::new(bin)
         .args(&full_args)
         .current_dir(work_dir)
-        .env("SECRET_MANAGER_EMULATOR_HOST", "http://localhost:9090")
+        .env("SECRET_MANAGER_EMULATOR_HOST", "http://localhost:8080")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .unwrap_or_else(|e| panic!("failed to spawn zuul {}: {e}", args.join(" ")));
+
+    use std::io::Write;
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin.write_all(stdin_data.as_bytes()).unwrap();
+    }
     child
-        .stdin
-        .as_mut()
-        .unwrap()
-        .write_all(input.as_bytes())
-        .expect("failed to write stdin");
-    child.wait_with_output().expect("failed to wait for zuul")
+        .wait_with_output()
+        .unwrap_or_else(|e| panic!("failed to wait on zuul {}: {e}", args.join(" ")))
 }
 
 /// Generate a unique project ID to prevent collisions across test runs.
@@ -120,7 +122,7 @@ environment = "dev"
     dir
 }
 
-/// Create a temp dir with a `.zuul.toml` that has NO default environment.
+/// Create a temp dir with a `.zuul.toml` that has no default environment.
 pub fn setup_project_no_default_env(project_id: &str) -> tempfile::TempDir {
     let dir = tempfile::tempdir().expect("failed to create temp dir");
     let uid = unique_project_id(project_id);
@@ -134,7 +136,83 @@ project_id = "{uid}"
     dir
 }
 
-/// Parse a string as JSON.
-pub fn parse_json(output: &str) -> serde_json::Value {
-    serde_json::from_str(output).unwrap_or_else(|e| panic!("invalid JSON: {e}\n---\n{output}"))
+/// Parse a JSON string, panicking with a helpful message on failure.
+pub fn parse_json(s: &str) -> serde_json::Value {
+    serde_json::from_str(s).unwrap_or_else(|e| panic!("failed to parse JSON: {e}\ninput: {s}"))
+}
+
+/// Create environments by writing the `zuul__registry` secret directly to the
+/// emulator REST API. This bypasses `zuul env create` (which is blocked for GCP).
+///
+/// Reads the `.zuul.toml` from the temp dir to extract the actual project_id
+/// (which includes a unique suffix from `setup_project`).
+pub fn create_envs(project_id_from_setup: &tempfile::TempDir, envs: &[&str]) {
+    // Read .zuul.toml to extract the project_id with unique suffix
+    let config_path = project_id_from_setup.path().join(".zuul.toml");
+    let config_content = std::fs::read_to_string(&config_path).expect("failed to read .zuul.toml");
+    let project_id = config_content
+        .lines()
+        .find(|line| line.starts_with("project_id"))
+        .and_then(|line| {
+            let value = line.split('=').nth(1)?.trim();
+            Some(value.trim_matches('"').to_string())
+        })
+        .expect("failed to extract project_id from .zuul.toml");
+
+    // Build registry JSON
+    let mut env_entries = Vec::new();
+    for env_name in envs {
+        env_entries.push(format!(
+            r#""{env_name}":{{"description":"","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z"}}"#
+        ));
+    }
+    let registry_json = format!(
+        r#"{{"version":1,"environments":{{{}}}}}"#,
+        env_entries.join(",")
+    );
+
+    let base_url = "http://localhost:8080/v1";
+
+    // Create the zuul__registry secret
+    let output = Command::new("curl")
+        .args([
+            "-s",
+            "-X",
+            "POST",
+            &format!("{base_url}/projects/{project_id}/secrets?secretId=zuul__registry"),
+            "-H",
+            "Content-Type: application/json",
+            "-d",
+            r#"{"replication":{"automatic":{}}}"#,
+        ])
+        .output()
+        .expect("failed to run curl to create registry secret");
+    assert!(
+        output.status.success(),
+        "curl create secret failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // Add a version with the registry data
+    let encoded = base64::engine::general_purpose::STANDARD.encode(registry_json.as_bytes());
+    let version_body = format!(r#"{{"payload":{{"data":"{encoded}"}}}}"#);
+
+    let output = Command::new("curl")
+        .args([
+            "-s",
+            "-X",
+            "POST",
+            &format!("{base_url}/projects/{project_id}/secrets/zuul__registry:addVersion"),
+            "-H",
+            "Content-Type: application/json",
+            "-d",
+            &version_body,
+        ])
+        .output()
+        .expect("failed to run curl to add registry version");
+    assert!(
+        output.status.success(),
+        "curl add version failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 }

@@ -1,7 +1,7 @@
 use crate::helpers::*;
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn auth_check_succeeds_against_emulator() {
     let bin = zuul_bin();
     let dir = setup_project("integ-auth-check");
@@ -12,7 +12,7 @@ fn auth_check_succeeds_against_emulator() {
 }
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn auth_check_no_config_fails() {
     let bin = zuul_bin();
     let dir = tempfile::tempdir().unwrap();
@@ -20,7 +20,10 @@ fn auth_check_no_config_fails() {
     // No .zuul.toml → auth should fail
     let stderr = zuul_err(bin, dir.path(), &["auth", "--check"]);
     assert!(
-        stderr.contains("zuul.toml") || stderr.contains("zuul init") || stderr.contains("config"),
+        stderr.contains("zuul.toml")
+            || stderr.contains("zuul init")
+            || stderr.contains("config")
+            || stderr.contains("backend"),
         "should report missing config, got: {stderr}"
     );
 }

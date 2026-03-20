@@ -5,12 +5,12 @@ use crate::helpers::*;
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn secret_set_get_positional_value() {
     let bin = zuul_bin();
     let dir = setup_project("integ-secret-pos");
 
-    zuul_ok(bin, dir.path(), &["env", "create", "dev"]);
+    create_envs(&dir, &["dev"]);
     zuul_ok(
         bin,
         dir.path(),
@@ -21,12 +21,12 @@ fn secret_set_get_positional_value() {
 }
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn secret_set_from_file() {
     let bin = zuul_bin();
     let dir = setup_project("integ-secret-file");
 
-    zuul_ok(bin, dir.path(), &["env", "create", "dev"]);
+    create_envs(&dir, &["dev"]);
 
     let cert_path = dir.path().join("cert.pem");
     std::fs::write(
@@ -55,12 +55,12 @@ fn secret_set_from_file() {
 }
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn secret_set_from_stdin() {
     let bin = zuul_bin();
     let dir = setup_project("integ-secret-stdin");
 
-    zuul_ok(bin, dir.path(), &["env", "create", "dev"]);
+    create_envs(&dir, &["dev"]);
 
     let output = zuul_stdin(
         bin,
@@ -83,12 +83,12 @@ fn secret_set_from_stdin() {
 }
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn secret_set_overwrites_existing() {
     let bin = zuul_bin();
     let dir = setup_project("integ-secret-overwrite");
 
-    zuul_ok(bin, dir.path(), &["env", "create", "dev"]);
+    create_envs(&dir, &["dev"]);
     zuul_ok(
         bin,
         dir.path(),
@@ -108,12 +108,12 @@ fn secret_set_overwrites_existing() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn secret_list_with_env_accepts_flag() {
     let bin = zuul_bin();
     let dir = setup_project("integ-secret-list-env");
 
-    zuul_ok(bin, dir.path(), &["env", "create", "dev"]);
+    create_envs(&dir, &["dev"]);
     zuul_ok(
         bin,
         dir.path(),
@@ -131,13 +131,12 @@ fn secret_list_with_env_accepts_flag() {
 }
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn secret_list_cross_env() {
     let bin = zuul_bin();
     let dir = setup_project("integ-secret-list-cross");
 
-    zuul_ok(bin, dir.path(), &["env", "create", "dev"]);
-    zuul_ok(bin, dir.path(), &["env", "create", "staging"]);
+    create_envs(&dir, &["dev", "staging"]);
     zuul_ok(
         bin,
         dir.path(),
@@ -161,12 +160,12 @@ fn secret_list_cross_env() {
 }
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator: emulator REST gateway rejects updateMask query param"]
 fn secret_list_with_metadata() {
     let bin = zuul_bin();
     let dir = setup_project("integ-secret-list-meta");
 
-    zuul_ok(bin, dir.path(), &["env", "create", "dev"]);
+    create_envs(&dir, &["dev"]);
     zuul_ok(
         bin,
         dir.path(),
@@ -200,12 +199,12 @@ fn secret_list_with_metadata() {
 }
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn secret_list_json_format() {
     let bin = zuul_bin();
     let dir = setup_project("integ-secret-list-json");
 
-    zuul_ok(bin, dir.path(), &["env", "create", "dev"]);
+    create_envs(&dir, &["dev"]);
     zuul_ok(
         bin,
         dir.path(),
@@ -226,12 +225,12 @@ fn secret_list_json_format() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn secret_delete_force() {
     let bin = zuul_bin();
     let dir = setup_project("integ-secret-del-force");
 
-    zuul_ok(bin, dir.path(), &["env", "create", "dev"]);
+    create_envs(&dir, &["dev"]);
     zuul_ok(
         bin,
         dir.path(),
@@ -251,12 +250,12 @@ fn secret_delete_force() {
 }
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn secret_delete_dry_run() {
     let bin = zuul_bin();
     let dir = setup_project("integ-secret-del-dry");
 
-    zuul_ok(bin, dir.path(), &["env", "create", "dev"]);
+    create_envs(&dir, &["dev"]);
     zuul_ok(
         bin,
         dir.path(),
@@ -275,12 +274,12 @@ fn secret_delete_dry_run() {
 }
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn secret_delete_nonexistent_fails() {
     let bin = zuul_bin();
     let dir = setup_project("integ-secret-del-missing");
 
-    zuul_ok(bin, dir.path(), &["env", "create", "dev"]);
+    create_envs(&dir, &["dev"]);
     let stderr = zuul_err(
         bin,
         dir.path(),
@@ -297,12 +296,12 @@ fn secret_delete_nonexistent_fails() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn secret_info_single_env() {
     let bin = zuul_bin();
     let dir = setup_project("integ-secret-info-env");
 
-    zuul_ok(bin, dir.path(), &["env", "create", "dev"]);
+    create_envs(&dir, &["dev"]);
     zuul_ok(
         bin,
         dir.path(),
@@ -315,13 +314,12 @@ fn secret_info_single_env() {
 }
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn secret_info_cross_env() {
     let bin = zuul_bin();
     let dir = setup_project("integ-secret-info-cross");
 
-    zuul_ok(bin, dir.path(), &["env", "create", "dev"]);
-    zuul_ok(bin, dir.path(), &["env", "create", "staging"]);
+    create_envs(&dir, &["dev", "staging"]);
     zuul_ok(
         bin,
         dir.path(),
@@ -342,12 +340,12 @@ fn secret_info_cross_env() {
 }
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn secret_info_json_format() {
     let bin = zuul_bin();
     let dir = setup_project("integ-secret-info-json");
 
-    zuul_ok(bin, dir.path(), &["env", "create", "dev"]);
+    create_envs(&dir, &["dev"]);
     zuul_ok(bin, dir.path(), &["secret", "set", "-e", "dev", "API", "x"]);
 
     let stdout = zuul_ok(
@@ -364,13 +362,12 @@ fn secret_info_json_format() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn secret_copy_basic() {
     let bin = zuul_bin();
     let dir = setup_project("integ-secret-copy");
 
-    zuul_ok(bin, dir.path(), &["env", "create", "dev"]);
-    zuul_ok(bin, dir.path(), &["env", "create", "staging"]);
+    create_envs(&dir, &["dev", "staging"]);
     zuul_ok(
         bin,
         dir.path(),
@@ -388,13 +385,12 @@ fn secret_copy_basic() {
 }
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn secret_copy_force_overwrites() {
     let bin = zuul_bin();
     let dir = setup_project("integ-secret-copy-force");
 
-    zuul_ok(bin, dir.path(), &["env", "create", "dev"]);
-    zuul_ok(bin, dir.path(), &["env", "create", "staging"]);
+    create_envs(&dir, &["dev", "staging"]);
     zuul_ok(
         bin,
         dir.path(),
@@ -423,13 +419,12 @@ fn secret_copy_force_overwrites() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn secret_copy_existing_without_force_fails() {
     let bin = zuul_bin();
     let dir = setup_project("integ-secret-copy-noforce");
 
-    zuul_ok(bin, dir.path(), &["env", "create", "dev"]);
-    zuul_ok(bin, dir.path(), &["env", "create", "staging"]);
+    create_envs(&dir, &["dev", "staging"]);
     zuul_ok(
         bin,
         dir.path(),
@@ -441,7 +436,7 @@ fn secret_copy_existing_without_force_fails() {
         &["secret", "set", "-e", "staging", "KEY", "stg_val"],
     );
 
-    // Copy without --force when target already has the secret → should fail
+    // Copy without --force when target already has the secret -> should fail
     let stderr = zuul_err(
         bin,
         dir.path(),
@@ -465,12 +460,12 @@ fn secret_copy_existing_without_force_fails() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn secret_copy_to_nonexistent_env_fails() {
     let bin = zuul_bin();
     let dir = setup_project("integ-secret-copy-noenv");
 
-    zuul_ok(bin, dir.path(), &["env", "create", "dev"]);
+    create_envs(&dir, &["dev"]);
     zuul_ok(
         bin,
         dir.path(),
@@ -493,14 +488,14 @@ fn secret_copy_to_nonexistent_env_fails() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn secret_set_no_value_non_interactive_fails() {
     let bin = zuul_bin();
     let dir = setup_project("integ-secret-set-noval");
 
-    zuul_ok(bin, dir.path(), &["env", "create", "dev"]);
+    create_envs(&dir, &["dev"]);
 
-    // No positional value, no --from-file, no --from-stdin → interactive prompt → fail
+    // No positional value, no --from-file, no --from-stdin -> interactive prompt -> fail
     let stderr = zuul_err(bin, dir.path(), &["secret", "set", "-e", "dev", "KEY"]);
     assert!(
         stderr.contains("Input required")
@@ -516,12 +511,12 @@ fn secret_set_no_value_non_interactive_fails() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator: emulator REST gateway rejects updateMask query param"]
 fn secret_list_with_metadata_json() {
     let bin = zuul_bin();
     let dir = setup_project("integ-secret-list-meta-json");
 
-    zuul_ok(bin, dir.path(), &["env", "create", "dev"]);
+    create_envs(&dir, &["dev"]);
     zuul_ok(
         bin,
         dir.path(),
@@ -557,12 +552,12 @@ fn secret_list_with_metadata_json() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn secret_roundtrip_multiline_value() {
     let bin = zuul_bin();
     let dir = setup_project("integ-secret-multiline");
 
-    zuul_ok(bin, dir.path(), &["env", "create", "dev"]);
+    create_envs(&dir, &["dev"]);
 
     let multiline = "line1\nline2\nline3";
     let file_path = dir.path().join("multi.txt");
@@ -587,12 +582,12 @@ fn secret_roundtrip_multiline_value() {
 }
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn secret_roundtrip_special_chars() {
     let bin = zuul_bin();
     let dir = setup_project("integ-secret-special");
 
-    zuul_ok(bin, dir.path(), &["env", "create", "dev"]);
+    create_envs(&dir, &["dev"]);
 
     // Value with quotes, equals, spaces, backslashes
     let special = r#"pa$$w0rd="hello world" key=val\ end"#;

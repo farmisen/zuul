@@ -5,13 +5,12 @@ use crate::helpers::*;
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn secret_in_one_env_not_visible_in_another() {
     let bin = zuul_bin();
     let dir = setup_project("integ-ac-env-scope");
 
-    zuul_ok(bin, dir.path(), &["env", "create", "dev"]);
-    zuul_ok(bin, dir.path(), &["env", "create", "staging"]);
+    create_envs(&dir, &["dev", "staging"]);
 
     zuul_ok(
         bin,
@@ -32,13 +31,12 @@ fn secret_in_one_env_not_visible_in_another() {
 }
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn secret_delete_in_wrong_env_fails() {
     let bin = zuul_bin();
     let dir = setup_project("integ-ac-del-wrong-env");
 
-    zuul_ok(bin, dir.path(), &["env", "create", "dev"]);
-    zuul_ok(bin, dir.path(), &["env", "create", "staging"]);
+    create_envs(&dir, &["dev", "staging"]);
     zuul_ok(
         bin,
         dir.path(),
@@ -66,12 +64,12 @@ fn secret_delete_in_wrong_env_fails() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn operations_on_nonexistent_env_fail() {
     let bin = zuul_bin();
     let dir = setup_project("integ-ac-no-env");
 
-    zuul_ok(bin, dir.path(), &["env", "create", "dev"]);
+    create_envs(&dir, &["dev"]);
 
     // secret set in nonexistent env
     let stderr = zuul_err(
@@ -119,12 +117,12 @@ fn operations_on_nonexistent_env_fail() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn get_nonexistent_secret_fails() {
     let bin = zuul_bin();
     let dir = setup_project("integ-ac-no-secret-get");
 
-    zuul_ok(bin, dir.path(), &["env", "create", "dev"]);
+    create_envs(&dir, &["dev"]);
 
     let stderr = zuul_err(
         bin,
@@ -138,12 +136,12 @@ fn get_nonexistent_secret_fails() {
 }
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn info_nonexistent_secret_fails() {
     let bin = zuul_bin();
     let dir = setup_project("integ-ac-no-secret-info");
 
-    zuul_ok(bin, dir.path(), &["env", "create", "dev"]);
+    create_envs(&dir, &["dev"]);
 
     let stderr = zuul_err(
         bin,
@@ -161,55 +159,12 @@ fn info_nonexistent_secret_fails() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore]
-fn env_name_validation() {
-    let bin = zuul_bin();
-    let dir = setup_project("integ-ac-env-names");
-
-    // Uppercase not allowed (env names must be lowercase)
-    let stderr = zuul_err(bin, dir.path(), &["env", "create", "UPPERCASE"]);
-    assert!(
-        stderr.contains("must start with")
-            || stderr.contains("invalid")
-            || stderr.contains("Invalid"),
-        "uppercase env name should be rejected, got: {stderr}"
-    );
-
-    // Double underscore not allowed
-    let stderr = zuul_err(bin, dir.path(), &["env", "create", "bad__name"]);
-    assert!(
-        stderr.contains("__") || stderr.contains("invalid") || stderr.contains("must"),
-        "__ in env name should be rejected, got: {stderr}"
-    );
-
-    // Reserved name 'registry'
-    let stderr = zuul_err(bin, dir.path(), &["env", "create", "registry"]);
-    assert!(
-        stderr.contains("reserved")
-            || stderr.contains("Reserved")
-            || stderr.contains("invalid")
-            || stderr.contains("must"),
-        "reserved name should be rejected, got: {stderr}"
-    );
-
-    // Reserved name 'config'
-    let stderr = zuul_err(bin, dir.path(), &["env", "create", "config"]);
-    assert!(
-        stderr.contains("reserved")
-            || stderr.contains("Reserved")
-            || stderr.contains("invalid")
-            || stderr.contains("must"),
-        "reserved name should be rejected, got: {stderr}"
-    );
-}
-
-#[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn secret_name_validation() {
     let bin = zuul_bin();
     let dir = setup_project("integ-ac-secret-names");
 
-    zuul_ok(bin, dir.path(), &["env", "create", "dev"]);
+    create_envs(&dir, &["dev"]);
 
     // Double underscore not allowed in secret names
     let stderr = zuul_err(
@@ -239,13 +194,12 @@ fn secret_name_validation() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn deleting_secret_in_one_env_does_not_affect_other() {
     let bin = zuul_bin();
     let dir = setup_project("integ-ac-del-isolation");
 
-    zuul_ok(bin, dir.path(), &["env", "create", "alpha"]);
-    zuul_ok(bin, dir.path(), &["env", "create", "beta"]);
+    create_envs(&dir, &["alpha", "beta"]);
 
     // Same logical name in both envs, different values
     zuul_ok(
@@ -287,110 +241,11 @@ fn deleting_secret_in_one_env_does_not_affect_other() {
 }
 
 // ---------------------------------------------------------------------------
-// env delete --dry-run shows the right resources
-// ---------------------------------------------------------------------------
-
-#[test]
-#[ignore]
-fn env_delete_dry_run_shows_bound_secrets() {
-    let bin = zuul_bin();
-    let dir = setup_project("integ-ac-del-dry-secrets");
-
-    zuul_ok(bin, dir.path(), &["env", "create", "staging"]);
-    zuul_ok(
-        bin,
-        dir.path(),
-        &["secret", "set", "--env", "staging", "DB_URL", "x"],
-    );
-    zuul_ok(
-        bin,
-        dir.path(),
-        &["secret", "set", "--env", "staging", "API_KEY", "y"],
-    );
-
-    let stdout = zuul_ok(bin, dir.path(), &["env", "delete", "staging", "--dry-run"]);
-    // Dry run should list the env and bound secrets
-    assert!(
-        stdout.contains("staging"),
-        "should mention the env, got: {stdout}"
-    );
-    assert!(
-        stdout.contains("DB_URL") || stdout.contains("API_KEY"),
-        "should list bound secrets, got: {stdout}"
-    );
-}
-
-// ---------------------------------------------------------------------------
-// env rename without --force requires confirmation (non-interactive fails)
-// ---------------------------------------------------------------------------
-
-#[test]
-#[ignore]
-fn env_rename_requires_confirmation_without_force() {
-    let bin = zuul_bin();
-    let dir = setup_project("integ-ac-rename-confirm");
-
-    zuul_ok(bin, dir.path(), &["env", "create", "old-name"]);
-    zuul_ok(
-        bin,
-        dir.path(),
-        &["secret", "set", "--env", "old-name", "KEY", "val"],
-    );
-
-    // Without --force, rename with secrets should fail in non-interactive mode
-    let stderr = zuul_err(
-        bin,
-        dir.path(),
-        &["env", "update", "old-name", "--new-name", "new-name"],
-    );
-    assert!(
-        stderr.contains("Confirmation") || stderr.contains("force") || stderr.contains("confirm"),
-        "should indicate confirmation needed, got: {stderr}"
-    );
-
-    // Original env should still exist (no partial rename)
-    let stdout = zuul_ok(bin, dir.path(), &["env", "show", "old-name"]);
-    assert!(stdout.contains("old-name"));
-}
-
-// ---------------------------------------------------------------------------
-// env delete --force removes env and secrets, other envs unaffected
-// ---------------------------------------------------------------------------
-
-#[test]
-#[ignore]
-fn env_delete_force_removes_env_and_secrets() {
-    let bin = zuul_bin();
-    let dir = setup_project("integ-ac-del-force");
-
-    zuul_ok(bin, dir.path(), &["env", "create", "target"]);
-    zuul_ok(
-        bin,
-        dir.path(),
-        &["secret", "set", "--env", "target", "KEY_A", "a"],
-    );
-    zuul_ok(
-        bin,
-        dir.path(),
-        &["secret", "set", "--env", "target", "KEY_B", "b"],
-    );
-
-    zuul_ok(bin, dir.path(), &["env", "delete", "target", "--force"]);
-
-    // Environment should be gone
-    let stderr = zuul_err(bin, dir.path(), &["env", "show", "target"]);
-    assert!(
-        stderr.contains("not") || stderr.contains("found"),
-        "env should be deleted, got: {stderr}"
-    );
-}
-
-// ---------------------------------------------------------------------------
 // export / run on nonexistent env fails
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn export_nonexistent_env_fails() {
     let bin = zuul_bin();
     let dir = setup_project("integ-ac-export-ghost");
@@ -407,7 +262,7 @@ fn export_nonexistent_env_fails() {
 }
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn run_nonexistent_env_fails() {
     let bin = zuul_bin();
     let dir = setup_project("integ-ac-run-ghost");
@@ -424,14 +279,12 @@ fn run_nonexistent_env_fails() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn secret_list_cross_env_shows_correct_envs() {
     let bin = zuul_bin();
     let dir = setup_project("integ-ac-cross-list");
 
-    zuul_ok(bin, dir.path(), &["env", "create", "dev"]);
-    zuul_ok(bin, dir.path(), &["env", "create", "staging"]);
-    zuul_ok(bin, dir.path(), &["env", "create", "production"]);
+    create_envs(&dir, &["dev", "staging", "production"]);
 
     // Set SHARED in dev and production (not staging)
     zuul_ok(
@@ -458,14 +311,14 @@ fn secret_list_cross_env_shows_correct_envs() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn different_projects_are_isolated() {
     let bin = zuul_bin();
 
     let dir_a = setup_project("integ-ac-proj-a");
     let dir_b = setup_project("integ-ac-proj-b");
 
-    zuul_ok(bin, dir_a.path(), &["env", "create", "dev"]);
+    create_envs(&dir_a, &["dev"]);
     zuul_ok(
         bin,
         dir_a.path(),
@@ -481,34 +334,16 @@ fn different_projects_are_isolated() {
 }
 
 // ---------------------------------------------------------------------------
-// Duplicate env creation is rejected
-// ---------------------------------------------------------------------------
-
-#[test]
-#[ignore]
-fn duplicate_env_creation_rejected() {
-    let bin = zuul_bin();
-    let dir = setup_project("integ-ac-dup-env");
-
-    zuul_ok(bin, dir.path(), &["env", "create", "dev"]);
-    let stderr = zuul_err(bin, dir.path(), &["env", "create", "dev"]);
-    assert!(
-        stderr.contains("already") || stderr.contains("exists"),
-        "duplicate env should be rejected, got: {stderr}"
-    );
-}
-
-// ---------------------------------------------------------------------------
 // Missing --env when no default configured
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn missing_env_with_no_default_fails() {
     let bin = zuul_bin();
     let dir = setup_project_no_default_env("integ-ac-no-default");
 
-    zuul_ok(bin, dir.path(), &["env", "create", "dev"]);
+    create_envs(&dir, &["dev"]);
 
     let stderr = zuul_err(bin, dir.path(), &["secret", "set", "KEY", "val"]);
     assert!(

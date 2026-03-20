@@ -1,6 +1,6 @@
 //! Integration tests for zuul against the GCP Secret Manager emulator.
 //!
-//! These tests require a running emulator on `localhost:9090`.
+//! These tests require a running emulator on `localhost:8080` (REST).
 //! Start it with: `docker compose -f docker-compose.emulator.yml up -d`
 //!
 //! Run with: `cargo test --test integration -- --ignored`

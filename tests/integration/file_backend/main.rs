@@ -14,8 +14,10 @@ mod helpers;
 mod metadata;
 mod secrets;
 
+mod cli_diff;
 mod cli_edge_cases;
 mod cli_env;
 mod cli_export_import;
 mod cli_init;
+mod cli_metadata;
 mod cli_secret;

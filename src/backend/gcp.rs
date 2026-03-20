@@ -1,96 +1,42 @@
 use std::collections::HashMap;
 use std::env;
-use std::io::Write;
-use std::time::Duration;
 
-use async_trait::async_trait;
-use backon::{ExponentialBuilder, Retryable};
-use chrono::{Duration as ChronoDuration, Utc};
-use gcloud_sdk::google::cloud::secretmanager::v1::secret_manager_service_client::SecretManagerServiceClient;
-use gcloud_sdk::google::cloud::secretmanager::v1::{
-    AccessSecretVersionRequest, AddSecretVersionRequest, CreateSecretRequest, DeleteSecretRequest,
-    GetSecretRequest, ListSecretsRequest, Replication, Secret, UpdateSecretRequest,
+use google_cloud_gax::error::rpc::Code;
+use google_cloud_gax::paginator::ItemPaginator;
+use google_cloud_secretmanager_v1::client::SecretManagerService;
+use google_cloud_secretmanager_v1::model::{
+    Replication, Secret, SecretPayload, replication::Automatic,
 };
-use gcloud_sdk::prost_types::FieldMask;
-use gcloud_sdk::tonic::Code;
-use gcloud_sdk::{BoxSource, GoogleApi, GoogleAuthMiddleware, Source, Token, TokenSourceType};
 
 use crate::error::ZuulError;
 
 /// Environment variable to override the Secret Manager endpoint (for emulator use).
 const EMULATOR_HOST_ENV: &str = "SECRET_MANAGER_EMULATOR_HOST";
 
-/// Dummy token source for connecting to a Secret Manager emulator without real credentials.
-struct EmulatorTokenSource;
-
-#[async_trait]
-impl Source for EmulatorTokenSource {
-    async fn token(&self) -> gcloud_sdk::error::Result<Token> {
-        Ok(Token::new(
-            "Bearer".to_string(),
-            "emulator-token".into(),
-            Utc::now() + ChronoDuration::hours(1),
-        ))
-    }
-}
-
-/// Page size for list operations.
-const LIST_PAGE_SIZE: i32 = 100;
-
-/// Returns the retry policy used for all GCP API calls.
-///
-/// Retries up to 3 times with exponential backoff starting at 100ms.
-fn retry_policy() -> ExponentialBuilder {
-    ExponentialBuilder::default()
-        .with_min_delay(Duration::from_millis(100))
-        .with_max_times(3)
-}
-
-/// Resolve a raw credentials value to a file path.
+/// Resolve a raw credentials string to a parsed JSON value.
 ///
 /// Resolution order:
-/// 1. If the value is a path to an existing file, use it directly.
-/// 2. Otherwise, try to parse it as inline JSON. If valid, write it to a
-///    secure temporary file (mode 0600) and return the temp file path.
+/// 1. If the value is a path to an existing file, read and parse it.
+/// 2. Otherwise, try to parse it as inline JSON directly.
 /// 3. If neither, return an error.
-///
-/// The caller must keep the returned `NamedTempFile` alive for as long as
-/// the credentials are needed — the file is deleted on drop.
-fn resolve_credentials(raw: &str) -> Result<(String, Option<tempfile::NamedTempFile>), ZuulError> {
+fn resolve_credentials(raw: &str) -> Result<serde_json::Value, ZuulError> {
     let trimmed = raw.trim();
 
     // 1. Check if it's an existing file path.
     if std::path::Path::new(trimmed).is_file() {
-        return Ok((trimmed.to_string(), None));
+        let content = std::fs::read_to_string(trimmed).map_err(|e| {
+            ZuulError::Config(format!("Failed to read credentials file '{trimmed}': {e}"))
+        })?;
+        return serde_json::from_str(&content).map_err(|e| {
+            ZuulError::Config(format!(
+                "Credentials file '{trimmed}' contains invalid JSON: {e}"
+            ))
+        });
     }
 
     // 2. Try to parse as inline JSON.
-    if serde_json::from_str::<serde_json::Value>(trimmed).is_ok() {
-        let mut tmp = tempfile::NamedTempFile::new().map_err(|e| {
-            ZuulError::Config(format!("Failed to create temporary credentials file: {e}"))
-        })?;
-
-        // Set restrictive permissions (Unix only).
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let perms = std::fs::Permissions::from_mode(0o600);
-            std::fs::set_permissions(tmp.path(), perms).map_err(|e| {
-                ZuulError::Config(format!(
-                    "Failed to set permissions on temporary credentials file: {e}"
-                ))
-            })?;
-        }
-
-        tmp.write_all(trimmed.as_bytes()).map_err(|e| {
-            ZuulError::Config(format!("Failed to write temporary credentials file: {e}"))
-        })?;
-        tmp.flush().map_err(|e| {
-            ZuulError::Config(format!("Failed to flush temporary credentials file: {e}"))
-        })?;
-
-        let path = tmp.path().to_string_lossy().into_owned();
-        return Ok((path, Some(tmp)));
+    if let Ok(value) = serde_json::from_str(trimmed) {
+        return Ok(value);
     }
 
     // 3. Neither a file nor valid JSON.
@@ -108,69 +54,59 @@ fn resolve_credentials(raw: &str) -> Result<(String, Option<tempfile::NamedTempF
 /// GCP Secret Manager client wrapper.
 ///
 /// Handles authentication via Application Default Credentials (ADC),
-/// a service account key file, or inline service account JSON. Token
-/// refresh is managed automatically by the underlying `gcloud-sdk` crate.
+/// a service account key file, or inline service account JSON. Retry
+/// and pagination are managed by the underlying official SDK.
 pub struct GcpClient {
-    pub(crate) client: GoogleApi<SecretManagerServiceClient<GoogleAuthMiddleware>>,
+    client: SecretManagerService,
     pub(crate) project_id: String,
-    /// Holds the temporary credentials file (if inline JSON was provided).
-    /// Kept alive for the lifetime of the client; deleted automatically on drop.
-    _credentials_tempfile: Option<tempfile::NamedTempFile>,
 }
 
 impl GcpClient {
     /// Create a new GCP Secret Manager client.
     ///
     /// Authentication is resolved in this order:
-    /// 1. `credentials_path` argument (from config or CLI)
-    /// 2. `ZUUL_GCP_CREDENTIALS` environment variable
-    /// 3. Application Default Credentials (ADC) — e.g., from `gcloud auth application-default login`
-    ///
-    /// If `SECRET_MANAGER_EMULATOR_HOST` is set, connects to that endpoint
-    /// with a dummy token (no real credentials needed).
-    pub async fn new(project_id: &str, credentials_path: Option<&str>) -> Result<Self, ZuulError> {
-        let mut tempfile_handle: Option<tempfile::NamedTempFile> = None;
-
+    /// 1. If `SECRET_MANAGER_EMULATOR_HOST` is set, connects to that endpoint
+    ///    with a static dummy token (no real credentials needed).
+    /// 2. `credentials` argument (from config or CLI) — file path or inline JSON.
+    /// 3. Application Default Credentials (ADC) — e.g., from `gcloud auth application-default login`.
+    pub async fn new(project_id: &str, credentials: Option<&str>) -> Result<Self, ZuulError> {
         let client = if let Ok(emulator_host) = env::var(EMULATOR_HOST_ENV) {
-            // Connect to emulator without real credentials.
-            let dummy_source: BoxSource = Box::new(EmulatorTokenSource);
-            GoogleApi::from_function_with_token_source(
-                SecretManagerServiceClient::new,
-                &emulator_host,
-                None,
-                vec!["https://www.googleapis.com/auth/cloud-platform".into()],
-                TokenSourceType::ExternalSource(dummy_source),
-            )
-            .await
+            // Connect to emulator with a static dummy token.
+            let creds = google_cloud_auth::credentials::anonymous::Builder::new().build();
+
+            SecretManagerService::builder()
+                .with_endpoint(&emulator_host)
+                .with_credentials(creds)
+                .build()
+                .await
         } else {
-            // Map credentials to GOOGLE_APPLICATION_CREDENTIALS so gcloud-sdk picks them up.
-            // Priority: explicit path > ZUUL_GCP_CREDENTIALS env var > ADC (automatic).
-            let creds = credentials_path
+            // Resolve credentials: explicit path/JSON > ZUUL_GCP_CREDENTIALS env > ADC.
+            let raw = credentials
                 .map(String::from)
                 .or_else(|| env::var("ZUUL_GCP_CREDENTIALS").ok());
-            if let Some(raw) = creds {
-                // Resolve inline JSON to a temp file, or use as file path.
-                let (path, tmp) = resolve_credentials(&raw)?;
-                tempfile_handle = tmp;
-                // SAFETY: called once during single-threaded client init, before tokio spawns tasks.
-                unsafe {
-                    env::set_var("GOOGLE_APPLICATION_CREDENTIALS", path);
-                }
-            }
 
-            GoogleApi::from_function(
-                SecretManagerServiceClient::new,
-                "https://secretmanager.googleapis.com",
-                None,
-            )
-            .await
+            if let Some(raw) = raw {
+                let json = resolve_credentials(&raw)?;
+                let creds = google_cloud_auth::credentials::service_account::Builder::new(json)
+                    .build()
+                    .map_err(|e| {
+                        ZuulError::Auth(format!("Failed to load service account credentials: {e}"))
+                    })?;
+
+                SecretManagerService::builder()
+                    .with_credentials(creds)
+                    .build()
+                    .await
+            } else {
+                // Fall back to ADC.
+                SecretManagerService::builder().build().await
+            }
         }
         .map_err(|e| ZuulError::Auth(format!("Failed to authenticate with GCP: {e}.")))?;
 
         Ok(Self {
             client,
             project_id: project_id.to_string(),
-            _credentials_tempfile: tempfile_handle,
         })
     }
 
@@ -202,83 +138,56 @@ impl GcpClient {
         labels: HashMap<String, String>,
         annotations: HashMap<String, String>,
     ) -> Result<Secret, ZuulError> {
-        let request = CreateSecretRequest {
-            parent: self.project_path(),
-            secret_id: secret_id.to_string(),
-            secret: Some(Secret {
-                replication: Some(Replication {
-                    replication: Some(
-                        gcloud_sdk::google::cloud::secretmanager::v1::replication::Replication::Automatic(
-                            gcloud_sdk::google::cloud::secretmanager::v1::replication::Automatic {
-                                customer_managed_encryption: None,
-                            },
-                        ),
-                    ),
-                }),
-                labels,
-                annotations,
-                ..Default::default()
-            }),
-        };
-
-        let response =
-            with_timeout(|| async { self.client.get().create_secret(request.clone()).await })
-                .await?;
-
-        Ok(response.into_inner())
+        self.client
+            .create_secret()
+            .set_parent(self.project_path())
+            .set_secret_id(secret_id)
+            .set_secret(
+                Secret::new()
+                    .set_replication(Replication::new().set_automatic(Automatic::new()))
+                    .set_labels(labels)
+                    .set_annotations(annotations),
+            )
+            .send()
+            .await
+            .map_err(map_error)
     }
 
     /// Get a secret's metadata (labels, annotations, etc.).
     pub async fn get_secret(&self, secret_id: &str) -> Result<Secret, ZuulError> {
-        let request = GetSecretRequest {
-            name: self.secret_path(secret_id),
-        };
-
-        let response =
-            with_timeout(|| async { self.client.get().get_secret(request.clone()).await }).await?;
-
-        Ok(response.into_inner())
+        self.client
+            .get_secret()
+            .set_name(self.secret_path(secret_id))
+            .send()
+            .await
+            .map_err(map_error)
     }
 
     /// Delete a GCP secret and all its versions.
     pub async fn delete_secret(&self, secret_id: &str) -> Result<(), ZuulError> {
-        let request = DeleteSecretRequest {
-            name: self.secret_path(secret_id),
-            etag: String::new(),
-        };
-
-        with_timeout(|| async { self.client.get().delete_secret(request.clone()).await }).await?;
-
-        Ok(())
+        self.client
+            .delete_secret()
+            .set_name(self.secret_path(secret_id))
+            .send()
+            .await
+            .map_err(map_error)
     }
 
     /// List secrets matching an optional filter string.
     ///
-    /// Handles pagination automatically, returning all matching secrets.
+    /// Handles pagination automatically via the SDK's built-in paginator.
     /// The filter uses GCP's filter syntax, e.g. `labels.zuul-managed=true`.
     pub async fn list_secrets(&self, filter: &str) -> Result<Vec<Secret>, ZuulError> {
+        let mut items = self
+            .client
+            .list_secrets()
+            .set_parent(self.project_path())
+            .set_filter(filter)
+            .by_item();
+
         let mut all_secrets = Vec::new();
-        let mut page_token = String::new();
-
-        loop {
-            let request = ListSecretsRequest {
-                parent: self.project_path(),
-                page_size: LIST_PAGE_SIZE,
-                page_token: page_token.clone(),
-                filter: filter.to_string(),
-            };
-
-            let response =
-                with_timeout(|| async { self.client.get().list_secrets(request.clone()).await })
-                    .await?;
-
-            let inner = response.into_inner();
-            all_secrets.extend(inner.secrets);
-
-            if inner.next_page_token.is_empty() {
-                break;
-            }
-            page_token = inner.next_page_token;
+        while let Some(result) = items.next().await {
+            all_secrets.push(result.map_err(map_error)?);
         }
 
         Ok(all_secrets)
@@ -293,17 +202,13 @@ impl GcpClient {
         secret_id: &str,
         payload: &[u8],
     ) -> Result<(), ZuulError> {
-        let checksum = crc32c::crc32c(payload);
-        let request = AddSecretVersionRequest {
-            parent: self.secret_path(secret_id),
-            payload: Some(gcloud_sdk::proto_ext::secretmanager::SecretPayload {
-                data: payload.to_vec().into(),
-                data_crc32c: Some(checksum as i64),
-            }),
-        };
-
-        with_timeout(|| async { self.client.get().add_secret_version(request.clone()).await })
-            .await?;
+        self.client
+            .add_secret_version()
+            .set_parent(self.secret_path(secret_id))
+            .set_payload(SecretPayload::new().set_data(bytes::Bytes::copy_from_slice(payload)))
+            .send()
+            .await
+            .map_err(map_error)?;
 
         Ok(())
     }
@@ -314,26 +219,21 @@ impl GcpClient {
         &self,
         secret_id: &str,
     ) -> Result<(Vec<u8>, String), ZuulError> {
-        let request = AccessSecretVersionRequest {
-            name: self.secret_version_path(secret_id),
-        };
+        let response = self
+            .client
+            .access_secret_version()
+            .set_name(self.secret_version_path(secret_id))
+            .send()
+            .await
+            .map_err(map_error)?;
 
-        let response = with_timeout(|| async {
-            self.client
-                .get()
-                .access_secret_version(request.clone())
-                .await
-        })
-        .await?;
+        let version_name = response.name.clone();
 
-        let inner = response.into_inner();
-        let version_name = inner.name.clone();
-
-        let payload = inner
+        let payload = response
             .payload
             .ok_or_else(|| ZuulError::Backend("Secret version has no payload".to_string()))?;
 
-        Ok((payload.data.ref_sensitive_value().to_vec(), version_name))
+        Ok((payload.data.to_vec(), version_name))
     }
 
     /// Update a secret's labels and/or annotations.
@@ -347,243 +247,99 @@ impl GcpClient {
         annotations: Option<HashMap<String, String>>,
     ) -> Result<Secret, ZuulError> {
         let mut paths = Vec::new();
-        let mut secret = Secret {
-            name: self.secret_path(secret_id),
-            ..Default::default()
-        };
+        let mut secret = Secret::new().set_name(self.secret_path(secret_id));
 
         if let Some(l) = labels {
             paths.push("labels".to_string());
-            secret.labels = l;
+            secret = secret.set_labels(l);
         }
         if let Some(a) = annotations {
             paths.push("annotations".to_string());
-            secret.annotations = a;
+            secret = secret.set_annotations(a);
         }
 
-        let request = UpdateSecretRequest {
-            secret: Some(secret),
-            update_mask: Some(FieldMask { paths }),
-        };
-
-        let response =
-            with_timeout(|| async { self.client.get().update_secret(request.clone()).await })
-                .await?;
-
-        Ok(response.into_inner())
-    }
-}
-
-/// Map a gRPC `tonic::Status` to a `ZuulError`.
-fn map_status(status: gcloud_sdk::tonic::Status) -> ZuulError {
-    match status.code() {
-        Code::NotFound => ZuulError::Backend(format!("Resource not found: {}", status.message())),
-        Code::AlreadyExists => {
-            ZuulError::Backend(format!("Resource already exists: {}", status.message()))
-        }
-        Code::PermissionDenied => ZuulError::PermissionDenied {
-            resource: status.message().to_string(),
-        },
-        Code::Unauthenticated => ZuulError::Auth(
-            "Authentication expired. Run `gcloud auth application-default login` to re-authenticate.".to_string(),
-        ),
-        Code::DeadlineExceeded => ZuulError::Backend(
-            "Request timed out. Check your network connection and try again.".to_string(),
-        ),
-        Code::ResourceExhausted => ZuulError::Backend(
-            "GCP rate limit exceeded. Wait a moment and try again, or check your quota at https://console.cloud.google.com/iam-admin/quotas.".to_string(),
-        ),
-        _ => ZuulError::Backend(format!("{}: {}", status.code(), status.message())),
-    }
-}
-
-/// Returns true if the gRPC status code is transient and worth retrying.
-fn is_retryable(status: &gcloud_sdk::tonic::Status) -> bool {
-    matches!(
-        status.code(),
-        Code::Unavailable | Code::ResourceExhausted | Code::DeadlineExceeded
-    )
-}
-
-/// Timeout for individual GCP API calls (including retries).
-const API_TIMEOUT: Duration = Duration::from_secs(30);
-
-/// Run a retryable GCP operation with a timeout.
-async fn with_timeout<F, Fut, T>(op: F) -> Result<T, ZuulError>
-where
-    F: FnMut() -> Fut + Clone,
-    Fut: std::future::Future<Output = Result<T, gcloud_sdk::tonic::Status>>,
-{
-    tokio::time::timeout(API_TIMEOUT, op.retry(retry_policy()).when(is_retryable))
-        .await
-        .map_err(|_| {
-            ZuulError::Backend(
-                "Request timed out. Check your network connection and try again.".to_string(),
+        self.client
+            .update_secret()
+            .set_secret(secret)
+            .set_update_mask(
+                google_cloud_wkt::FieldMask::default().set_paths(paths.iter().map(String::as_str)),
             )
-        })?
-        .map_err(map_status)
+            .send()
+            .await
+            .map_err(map_error)
+    }
+}
+
+/// Map a GCP SDK error to a `ZuulError`.
+fn map_error(err: google_cloud_gax::error::Error) -> ZuulError {
+    if err.is_authentication() {
+        return ZuulError::Auth(
+            "Authentication expired. Run `gcloud auth application-default login` to re-authenticate."
+                .to_string(),
+        );
+    }
+
+    if let Some(status) = err.status() {
+        match status.code {
+            Code::NotFound => {
+                ZuulError::Backend(format!("Resource not found: {}", status.message))
+            }
+            Code::AlreadyExists => {
+                ZuulError::Backend(format!("Resource already exists: {}", status.message))
+            }
+            Code::PermissionDenied => ZuulError::PermissionDenied {
+                resource: status.message.clone(),
+            },
+            Code::Unauthenticated => ZuulError::Auth(
+                "Authentication expired. Run `gcloud auth application-default login` to re-authenticate.".to_string(),
+            ),
+            Code::DeadlineExceeded => ZuulError::Backend(
+                "Request timed out. Check your network connection and try again.".to_string(),
+            ),
+            Code::ResourceExhausted => ZuulError::Backend(
+                "GCP rate limit exceeded. Wait a moment and try again, or check your quota at https://console.cloud.google.com/iam-admin/quotas.".to_string(),
+            ),
+            _ => ZuulError::Backend(format!("{:?}: {}", status.code, status.message)),
+        }
+    } else {
+        ZuulError::Backend(format!("{err}"))
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    // --- map_status tests ---
-
-    #[test]
-    fn map_status_not_found() {
-        let status = gcloud_sdk::tonic::Status::not_found("secret xyz");
-        let err = map_status(status);
-        match &err {
-            ZuulError::Backend(msg) => assert!(msg.contains("not found")),
-            other => panic!("expected Backend, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn map_status_already_exists() {
-        let status = gcloud_sdk::tonic::Status::already_exists("secret xyz");
-        let err = map_status(status);
-        match &err {
-            ZuulError::Backend(msg) => assert!(msg.contains("already exists")),
-            other => panic!("expected Backend, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn map_status_permission_denied() {
-        let status = gcloud_sdk::tonic::Status::permission_denied("zuul__prod__DB_URL");
-        let err = map_status(status);
-        match &err {
-            ZuulError::PermissionDenied { resource } => {
-                assert!(resource.contains("zuul__prod__DB_URL"));
-            }
-            other => panic!("expected PermissionDenied, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn map_status_unauthenticated() {
-        let status = gcloud_sdk::tonic::Status::unauthenticated("expired token");
-        let err = map_status(status);
-        match &err {
-            ZuulError::Auth(msg) => {
-                assert!(
-                    msg.contains("gcloud auth application-default login"),
-                    "should suggest re-auth command, got: {msg}"
-                );
-            }
-            other => panic!("expected Auth, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn map_status_deadline_exceeded() {
-        let status = gcloud_sdk::tonic::Status::new(Code::DeadlineExceeded, "timed out");
-        let err = map_status(status);
-        match &err {
-            ZuulError::Backend(msg) => {
-                assert!(
-                    msg.contains("timed out") || msg.contains("timeout"),
-                    "should mention timeout, got: {msg}"
-                );
-            }
-            other => panic!("expected Backend, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn map_status_resource_exhausted() {
-        let status = gcloud_sdk::tonic::Status::resource_exhausted("quota exceeded");
-        let err = map_status(status);
-        match &err {
-            ZuulError::Backend(msg) => {
-                assert!(
-                    msg.contains("rate limit") || msg.contains("quota"),
-                    "should mention rate limit, got: {msg}"
-                );
-            }
-            other => panic!("expected Backend, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn map_status_other_codes() {
-        let status = gcloud_sdk::tonic::Status::internal("something broke");
-        let err = map_status(status);
-        match &err {
-            ZuulError::Backend(msg) => {
-                assert!(msg.contains("something broke"));
-            }
-            other => panic!("expected Backend, got {other:?}"),
-        }
-    }
-
-    // --- is_retryable tests ---
-
-    #[test]
-    fn retryable_unavailable() {
-        let status = gcloud_sdk::tonic::Status::unavailable("service down");
-        assert!(is_retryable(&status));
-    }
-
-    #[test]
-    fn retryable_resource_exhausted() {
-        let status = gcloud_sdk::tonic::Status::resource_exhausted("rate limited");
-        assert!(is_retryable(&status));
-    }
-
-    #[test]
-    fn retryable_deadline_exceeded() {
-        let status = gcloud_sdk::tonic::Status::new(Code::DeadlineExceeded, "timed out");
-        assert!(is_retryable(&status));
-    }
-
-    #[test]
-    fn not_retryable_not_found() {
-        let status = gcloud_sdk::tonic::Status::not_found("gone");
-        assert!(!is_retryable(&status));
-    }
-
-    #[test]
-    fn not_retryable_permission_denied() {
-        let status = gcloud_sdk::tonic::Status::permission_denied("nope");
-        assert!(!is_retryable(&status));
-    }
-
-    #[test]
-    fn not_retryable_internal() {
-        let status = gcloud_sdk::tonic::Status::internal("bug");
-        assert!(!is_retryable(&status));
-    }
-
     // --- resolve_credentials tests ---
 
     #[test]
     fn resolve_credentials_existing_file() {
-        let tmp = tempfile::NamedTempFile::new().unwrap();
-        let file_path = tmp.path().to_str().unwrap();
-        let (path, handle) = resolve_credentials(file_path).unwrap();
-        assert_eq!(path, file_path);
-        assert!(handle.is_none());
+        let dir = tempfile::tempdir().unwrap();
+        let file_path = dir.path().join("creds.json");
+        std::fs::write(
+            &file_path,
+            r#"{"type": "service_account", "project_id": "test"}"#,
+        )
+        .unwrap();
+
+        let result = resolve_credentials(file_path.to_str().unwrap()).unwrap();
+        assert_eq!(result["type"], "service_account");
+        assert_eq!(result["project_id"], "test");
     }
 
     #[test]
     fn resolve_credentials_inline_json() {
         let json = r#"{"type": "service_account", "project_id": "test"}"#;
-        let (path, tmp) = resolve_credentials(json).unwrap();
-        assert!(tmp.is_some());
-        let contents = std::fs::read_to_string(&path).unwrap();
-        assert_eq!(contents, json);
+        let result = resolve_credentials(json).unwrap();
+        assert_eq!(result["type"], "service_account");
+        assert_eq!(result["project_id"], "test");
     }
 
     #[test]
     fn resolve_credentials_inline_json_with_whitespace() {
         let json = r#"  { "type": "service_account" }  "#;
-        let (path, tmp) = resolve_credentials(json).unwrap();
-        assert!(tmp.is_some());
-        let contents = std::fs::read_to_string(&path).unwrap();
-        assert_eq!(contents, json.trim());
+        let result = resolve_credentials(json).unwrap();
+        assert_eq!(result["type"], "service_account");
     }
 
     #[test]
@@ -611,22 +367,136 @@ mod tests {
     }
 
     #[test]
-    fn resolve_credentials_tempfile_cleaned_on_drop() {
-        let json = r#"{"type": "service_account"}"#;
-        let (path, tmp) = resolve_credentials(json).unwrap();
-        assert!(std::path::Path::new(&path).exists());
-        drop(tmp);
-        assert!(!std::path::Path::new(&path).exists());
+    fn resolve_credentials_file_with_invalid_json() {
+        let dir = tempfile::tempdir().unwrap();
+        let file_path = dir.path().join("bad.json");
+        std::fs::write(&file_path, "not json at all").unwrap();
+
+        let result = resolve_credentials(file_path.to_str().unwrap());
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("invalid JSON"),
+            "error should mention invalid JSON in file, got: {err}"
+        );
     }
 
-    #[cfg(unix)]
+    // --- map_error tests ---
+
     #[test]
-    fn resolve_credentials_tempfile_permissions() {
-        use std::os::unix::fs::PermissionsExt;
-        let json = r#"{"type": "service_account"}"#;
-        let (_path, tmp) = resolve_credentials(json).unwrap();
-        let tmp = tmp.unwrap();
-        let mode = std::fs::metadata(tmp.path()).unwrap().permissions().mode();
-        assert_eq!(mode & 0o777, 0o600);
+    fn map_error_not_found() {
+        let err = google_cloud_gax::error::Error::service(
+            google_cloud_gax::error::rpc::Status::default()
+                .set_code(Code::NotFound)
+                .set_message("secret xyz"),
+        );
+        let zuul_err = map_error(err);
+        match &zuul_err {
+            ZuulError::Backend(msg) => assert!(msg.contains("not found")),
+            other => panic!("expected Backend, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn map_error_already_exists() {
+        let err = google_cloud_gax::error::Error::service(
+            google_cloud_gax::error::rpc::Status::default()
+                .set_code(Code::AlreadyExists)
+                .set_message("secret xyz"),
+        );
+        let zuul_err = map_error(err);
+        match &zuul_err {
+            ZuulError::Backend(msg) => assert!(msg.contains("already exists")),
+            other => panic!("expected Backend, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn map_error_permission_denied() {
+        let err = google_cloud_gax::error::Error::service(
+            google_cloud_gax::error::rpc::Status::default()
+                .set_code(Code::PermissionDenied)
+                .set_message("zuul__prod__DB_URL"),
+        );
+        let zuul_err = map_error(err);
+        match &zuul_err {
+            ZuulError::PermissionDenied { resource } => {
+                assert!(resource.contains("zuul__prod__DB_URL"));
+            }
+            other => panic!("expected PermissionDenied, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn map_error_unauthenticated() {
+        let err = google_cloud_gax::error::Error::service(
+            google_cloud_gax::error::rpc::Status::default()
+                .set_code(Code::Unauthenticated)
+                .set_message("expired token"),
+        );
+        let zuul_err = map_error(err);
+        match &zuul_err {
+            ZuulError::Auth(msg) => {
+                assert!(
+                    msg.contains("gcloud auth application-default login"),
+                    "should suggest re-auth command, got: {msg}"
+                );
+            }
+            other => panic!("expected Auth, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn map_error_deadline_exceeded() {
+        let err = google_cloud_gax::error::Error::service(
+            google_cloud_gax::error::rpc::Status::default()
+                .set_code(Code::DeadlineExceeded)
+                .set_message("timed out"),
+        );
+        let zuul_err = map_error(err);
+        match &zuul_err {
+            ZuulError::Backend(msg) => {
+                assert!(
+                    msg.contains("timed out") || msg.contains("timeout"),
+                    "should mention timeout, got: {msg}"
+                );
+            }
+            other => panic!("expected Backend, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn map_error_resource_exhausted() {
+        let err = google_cloud_gax::error::Error::service(
+            google_cloud_gax::error::rpc::Status::default()
+                .set_code(Code::ResourceExhausted)
+                .set_message("quota exceeded"),
+        );
+        let zuul_err = map_error(err);
+        match &zuul_err {
+            ZuulError::Backend(msg) => {
+                assert!(
+                    msg.contains("rate limit") || msg.contains("quota"),
+                    "should mention rate limit, got: {msg}"
+                );
+            }
+            other => panic!("expected Backend, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn map_error_other_codes() {
+        let err = google_cloud_gax::error::Error::service(
+            google_cloud_gax::error::rpc::Status::default()
+                .set_code(Code::Internal)
+                .set_message("something broke"),
+        );
+        let zuul_err = map_error(err);
+        match &zuul_err {
+            ZuulError::Backend(msg) => {
+                assert!(msg.contains("something broke"));
+            }
+            other => panic!("expected Backend, got {other:?}"),
+        }
     }
 }

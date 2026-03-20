@@ -1,7 +1,7 @@
 use crate::helpers::*;
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn init_creates_config_and_gitignore() {
     let bin = zuul_bin();
     let dir = tempfile::tempdir().unwrap();
@@ -40,7 +40,7 @@ fn init_creates_config_and_gitignore() {
 }
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn init_fails_if_config_exists() {
     let bin = zuul_bin();
     let dir = tempfile::tempdir().unwrap();
@@ -66,7 +66,7 @@ fn init_fails_if_config_exists() {
 }
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn init_appends_to_existing_gitignore() {
     let bin = zuul_bin();
     let dir = tempfile::tempdir().unwrap();
@@ -98,7 +98,7 @@ fn init_appends_to_existing_gitignore() {
 }
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn init_skips_gitignore_if_already_listed() {
     let bin = zuul_bin();
     let dir = tempfile::tempdir().unwrap();
@@ -132,7 +132,7 @@ fn init_skips_gitignore_if_already_listed() {
 }
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn init_with_custom_backend() {
     let bin = zuul_bin();
     let dir = tempfile::tempdir().unwrap();
@@ -154,7 +154,7 @@ fn init_with_custom_backend() {
 }
 
 #[test]
-#[ignore]
+#[ignore = "needs emulator"]
 fn init_without_project_in_non_interactive_fails() {
     let bin = zuul_bin();
     let dir = tempfile::tempdir().unwrap();
