@@ -123,6 +123,7 @@ See [`.envrc.example`](.envrc.example) for a ready-to-use template.
 | `zuul import` | Bulk-import secrets from a file |
 | `zuul diff` | Compare secrets between two environments |
 | `zuul recover status\|resume\|abort` | Inspect or resume incomplete batch operations |
+| `zuul sync netlify` | Sync secrets to Netlify's environment variables |
 | `zuul completions <shell>` | Generate shell completions (bash, zsh, fish, etc.) |
 
 Use `zuul --help` or `zuul <command> --help` for details.

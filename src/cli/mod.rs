@@ -8,6 +8,7 @@ pub mod metadata;
 pub mod recover;
 pub mod run;
 pub mod secret;
+pub mod sync;
 
 use std::path::PathBuf;
 
@@ -160,6 +161,12 @@ pub enum Command {
         command: RecoverCommand,
     },
 
+    /// Sync secrets to a hosting platform's native environment variable store
+    Sync {
+        #[command(subcommand)]
+        command: SyncCommand,
+    },
+
     /// Generate shell completions
     Completions {
         /// Shell to generate completions for
@@ -183,6 +190,36 @@ pub enum RecoverCommand {
     /// Discard the journal without resuming (acknowledge partial state)
     Abort {
         /// Skip confirmation prompt
+        #[arg(long)]
+        force: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum SyncCommand {
+    /// Sync secrets to Netlify
+    Netlify {
+        /// Zuul environment to sync from (required)
+        #[arg(short, long)]
+        env: String,
+
+        /// Netlify deploy context (production, deploy-preview, branch-deploy, dev)
+        #[arg(long)]
+        context: String,
+
+        /// Netlify scopes (builds, functions, runtime, post-processing). Repeatable.
+        #[arg(long, required = true, num_args = 1)]
+        scope: Vec<String>,
+
+        /// Preview what would change without modifying anything
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Remove platform env vars not present in zuul
+        #[arg(long)]
+        prune: bool,
+
+        /// Skip confirmation prompts (for --prune)
         #[arg(long)]
         force: bool,
     },

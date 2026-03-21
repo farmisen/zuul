@@ -3,13 +3,13 @@ use std::process;
 use clap::{CommandFactory, Parser};
 use rustls::crypto::ring::default_provider;
 
-use zuul::backend::BackendKind;
 use zuul::backend::file_backend::FileBackend;
 use zuul::backend::gcp::GcpClient;
 use zuul::backend::gcp_backend::GcpBackend;
+use zuul::backend::{Backend, BackendKind};
 use zuul::cli::{
-    Cli, Command, EnvCommand, MetadataCommand, RecoverCommand, SecretCommand, auth, diff, env,
-    export, import, init, metadata, recover, run, secret,
+    Cli, Command, EnvCommand, MetadataCommand, RecoverCommand, SecretCommand, SyncCommand, auth,
+    diff, env, export, import, init, metadata, recover, run, secret,
 };
 use zuul::config::{CliOverrides, Config, load_config};
 use zuul::error::ZuulError;
@@ -349,6 +349,54 @@ async fn run(cli: Cli) -> Result<(), ZuulError> {
                 }
                 RecoverCommand::Abort { force } => {
                     recover::abort(project_root, *force, cli.non_interactive)?;
+                }
+            }
+        }
+        Command::Sync { ref command } => {
+            let config = resolve_config(&cli, None)?;
+            let backend = create_backend(&config).await?;
+            match command {
+                SyncCommand::Netlify {
+                    env,
+                    context,
+                    scope,
+                    dry_run,
+                    prune,
+                    force,
+                } => {
+                    use zuul::cli::sync::{self, SyncTarget, netlify::NetlifyTarget};
+
+                    let target = NetlifyTarget::new(context, scope)?;
+
+                    // Fetch zuul secrets (no local overrides for sync)
+                    backend.get_environment(env).await?;
+                    let sp = zuul::progress::spinner("Fetching secrets...", progress);
+                    let backend_secrets = backend.list_secrets_for_environment(env).await?;
+                    sp.finish_and_clear();
+
+                    let zuul_secrets: std::collections::HashMap<String, String> = backend_secrets
+                        .into_iter()
+                        .map(|(name, sv)| (name, sv.value))
+                        .collect();
+
+                    // Fetch current platform vars
+                    let sp = zuul::progress::spinner(
+                        &format!("Fetching {} variables...", target.name()),
+                        progress,
+                    );
+                    let platform_vars = target.list_vars()?;
+                    sp.finish_and_clear();
+
+                    // Compute diff and execute
+                    let actions = sync::compute_diff(&zuul_secrets, &platform_vars, *prune);
+                    sync::execute_sync(&sync::SyncOpts {
+                        target: &target,
+                        actions: &actions,
+                        dry_run: *dry_run,
+                        prune: *prune,
+                        force: *force,
+                        non_interactive: cli.non_interactive,
+                    })?;
                 }
             }
         }
