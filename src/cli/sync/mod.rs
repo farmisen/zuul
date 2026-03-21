@@ -1,3 +1,4 @@
+pub mod fly;
 pub mod netlify;
 
 use std::collections::HashMap;

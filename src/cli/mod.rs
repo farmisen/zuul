@@ -223,6 +223,33 @@ pub enum SyncCommand {
         #[arg(long)]
         force: bool,
     },
+
+    /// Sync secrets to Fly.io
+    Fly {
+        /// Zuul environment to sync from (required)
+        #[arg(short, long)]
+        env: String,
+
+        /// Fly app name (auto-detected from fly.toml if omitted)
+        #[arg(long)]
+        app: Option<String>,
+
+        /// Stage secrets without redeploying (run `fly secrets deploy` later)
+        #[arg(long)]
+        stage: bool,
+
+        /// Preview what would change without modifying anything
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Remove Fly secrets not present in zuul
+        #[arg(long)]
+        prune: bool,
+
+        /// Skip confirmation prompts (for --prune)
+        #[arg(long)]
+        force: bool,
+    },
 }
 
 #[derive(Debug, Subcommand)]

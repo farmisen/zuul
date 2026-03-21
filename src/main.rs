@@ -398,6 +398,57 @@ async fn run(cli: Cli) -> Result<(), ZuulError> {
                         non_interactive: cli.non_interactive,
                     })?;
                 }
+                SyncCommand::Fly {
+                    env,
+                    app,
+                    stage,
+                    dry_run,
+                    prune,
+                    force,
+                } => {
+                    use zuul::cli::sync::{self, SyncTarget, fly::FlyTarget};
+
+                    let target = FlyTarget::new(app.as_deref(), *stage);
+
+                    // Fetch zuul secrets (no local overrides for sync)
+                    backend.get_environment(env).await?;
+                    let sp = zuul::progress::spinner("Fetching secrets...", progress);
+                    let backend_secrets = backend.list_secrets_for_environment(env).await?;
+                    sp.finish_and_clear();
+
+                    let zuul_secrets: std::collections::HashMap<String, String> = backend_secrets
+                        .into_iter()
+                        .map(|(name, sv)| (name, sv.value))
+                        .collect();
+
+                    // Fetch current Fly secrets (names only — values not available)
+                    let sp = zuul::progress::spinner(
+                        &format!("Fetching {} secrets...", target.name()),
+                        progress,
+                    );
+                    let platform_vars = target.list_vars()?;
+                    sp.finish_and_clear();
+
+                    // Compute diff and execute
+                    let actions = sync::compute_diff(&zuul_secrets, &platform_vars, *prune);
+                    sync::execute_sync(&sync::SyncOpts {
+                        target: &target,
+                        actions: &actions,
+                        dry_run: *dry_run,
+                        prune: *prune,
+                        force: *force,
+                        non_interactive: cli.non_interactive,
+                    })?;
+
+                    if *stage && !*dry_run {
+                        println!(
+                            "\nSecrets staged. Run `fly secrets deploy{}` to apply.",
+                            app.as_ref()
+                                .map(|a| format!(" --app {a}"))
+                                .unwrap_or_default()
+                        );
+                    }
+                }
             }
         }
         Command::Completions { shell } => {
