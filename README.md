@@ -102,11 +102,6 @@ Add this to your `.envrc` for automatic secret loading:
 eval "$(zuul export --env dev --export-format direnv)"
 ```
 
-**Caveats:**
-- Remote backends (GCP) add latency on each `cd` (one API call to fetch secrets); file backend is instant
-- Remote backends require an active auth session (`zuul auth`)
-- The `.envrc` file itself contains no secrets — safe to commit to version control
-
 See [`.envrc.example`](.envrc.example) for a ready-to-use template.
 
 ## Commands
