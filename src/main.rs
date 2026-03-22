@@ -264,7 +264,7 @@ async fn run(cli: Cli) -> Result<(), ZuulError> {
             ref env,
             ref export_format,
             ref output,
-            no_local,
+            overrides,
         } => {
             let config = resolve_config(&cli, env.as_deref())?;
             let backend = create_backend(&config).await?;
@@ -275,20 +275,20 @@ async fn run(cli: Cli) -> Result<(), ZuulError> {
                 env,
                 export_format,
                 output.as_deref(),
-                no_local,
+                overrides,
                 progress,
             )
             .await?;
         }
         Command::Run {
             ref env,
-            no_local,
+            overrides,
             ref command,
         } => {
             let config = resolve_config(&cli, env.as_deref())?;
             let backend = create_backend(&config).await?;
             let env = secret::require_env(config.default_environment.as_deref())?;
-            let exit_code = run::run(&backend, &config, env, no_local, command, progress).await?;
+            let exit_code = run::run(&backend, &config, env, overrides, command, progress).await?;
             process::exit(exit_code);
         }
         Command::Import {

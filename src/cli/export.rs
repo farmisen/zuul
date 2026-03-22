@@ -12,7 +12,7 @@ use crate::progress::{self, ProgressOpts};
 /// Run `zuul export`.
 ///
 /// Fetches all secrets for the given environment, applies local overrides
-/// (unless `no_local` is set), renders in the requested format, and writes
+/// (if `overrides` is set), renders in the requested format, and writes
 /// to the output file or stdout.
 pub async fn run(
     backend: &impl Backend,
@@ -20,7 +20,7 @@ pub async fn run(
     env: &str,
     format: &ExportFormat,
     output: Option<&Path>,
-    no_local: bool,
+    overrides: bool,
     progress: ProgressOpts,
 ) -> Result<(), ZuulError> {
     // Verify environment exists
@@ -37,8 +37,8 @@ pub async fn run(
         .map(|(name, sv)| (name, sv.value))
         .collect();
 
-    // Apply local overrides unless --no-local
-    if !no_local {
+    // Apply local overrides if --overrides
+    if overrides {
         for (key, value) in &config.local_overrides {
             secrets.insert(key.clone(), value.clone());
         }

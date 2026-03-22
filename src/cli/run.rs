@@ -9,13 +9,13 @@ use crate::progress::{self, ProgressOpts};
 /// Run `zuul run`.
 ///
 /// Fetches all secrets for the given environment, applies local overrides
-/// (unless `no_local` is set), merges them into the current process environment
+/// (if `overrides` is set), merges them into the current process environment
 /// (stripping `ZUUL_*` vars), spawns the child process, and returns its exit code.
 pub async fn run(
     backend: &impl Backend,
     config: &Config,
     env: &str,
-    no_local: bool,
+    overrides: bool,
     command: &[String],
     progress: ProgressOpts,
 ) -> Result<i32, ZuulError> {
@@ -33,8 +33,8 @@ pub async fn run(
         .map(|(name, sv)| (name, sv.value))
         .collect();
 
-    // Apply local overrides unless --no-local
-    if !no_local {
+    // Apply local overrides if --overrides
+    if overrides {
         for (key, value) in &config.local_overrides {
             secrets.insert(key.clone(), value.clone());
         }

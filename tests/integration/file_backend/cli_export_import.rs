@@ -420,7 +420,7 @@ fn export_with_and_without_local_overrides() {
     )
     .unwrap();
 
-    // Default: local overrides applied
+    // Default: backend values only (no overrides)
     let stdout = zuul_ok(
         bin,
         dir.path(),
@@ -429,11 +429,11 @@ fn export_with_and_without_local_overrides() {
     let json = parse_json(&stdout);
     assert_eq!(
         json["DB_URL"].as_str().unwrap(),
-        "local://db",
-        "local override should win"
+        "remote://db",
+        "default should use backend value"
     );
 
-    // --no-local: backend value
+    // --overrides: local override applied
     let stdout = zuul_ok(
         bin,
         dir.path(),
@@ -443,14 +443,14 @@ fn export_with_and_without_local_overrides() {
             "dev",
             "--export-format",
             "json",
-            "--no-local",
+            "--overrides",
         ],
     );
     let json = parse_json(&stdout);
     assert_eq!(
         json["DB_URL"].as_str().unwrap(),
-        "remote://db",
-        "--no-local should use backend value"
+        "local://db",
+        "--overrides should apply local override"
     );
 }
 
@@ -604,11 +604,11 @@ fn run_strips_zuul_env_vars() {
 }
 
 // ---------------------------------------------------------------------------
-// run --no-local skips overrides
+// run --overrides applies local values
 // ---------------------------------------------------------------------------
 
 #[test]
-fn run_no_local_skips_overrides() {
+fn run_overrides_applies_local_values() {
     let dir = setup_project_with_env();
     let bin = zuul_bin();
 
@@ -624,15 +624,15 @@ fn run_no_local_skips_overrides() {
     )
     .unwrap();
 
-    // Default: local override applied
+    // Default: backend value (no overrides)
     let stdout = zuul_ok(
         bin,
         dir.path(),
         &["run", "-e", "dev", "--", "sh", "-c", "echo $URL"],
     );
-    assert_eq!(stdout.trim(), "local");
+    assert_eq!(stdout.trim(), "remote");
 
-    // --no-local: backend value
+    // --overrides: local override applied
     let stdout = zuul_ok(
         bin,
         dir.path(),
@@ -640,14 +640,14 @@ fn run_no_local_skips_overrides() {
             "run",
             "-e",
             "dev",
-            "--no-local",
+            "--overrides",
             "--",
             "sh",
             "-c",
             "echo $URL",
         ],
     );
-    assert_eq!(stdout.trim(), "remote");
+    assert_eq!(stdout.trim(), "local");
 }
 
 // ---------------------------------------------------------------------------

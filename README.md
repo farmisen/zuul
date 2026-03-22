@@ -92,7 +92,7 @@ DATABASE_URL = "postgres://localhost:5432/mydb_local"
 REDIS_URL = "redis://localhost:6379"
 ```
 
-Local overrides apply to `zuul export` and `zuul run` by default. Use `--no-local` to skip them.
+Local overrides from `.zuul.local.toml` are not applied by default. Use `--overrides` with `zuul export` or `zuul run` to merge them.
 
 ## direnv Integration
 

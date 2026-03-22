@@ -182,10 +182,10 @@ REDIS_URL = "redis://localhost:6379"
 
 **Behavior:**
 
-- When `zuul export` or `zuul run` resolves secrets for an environment, local overrides take precedence over backend values
+- By default, `zuul export` and `zuul run` use only backend values. Pass `--overrides` to merge local overrides from `.zuul.local.toml` on top
 - Overrides apply regardless of which `--env` is targeted (they are environment-agnostic since they represent the developer's local machine)
 - `zuul secret list` and `zuul secret info` indicate when a secret has a local override active (e.g., a `(local)` marker)
-- `zuul export --no-local` and `zuul run --no-local` skip local overrides (useful for testing against the real backend values)
+- `zuul export --overrides` and `zuul run --overrides` merge local overrides from `.zuul.local.toml`
 
 **Rationale:** Developers often need to point services at local instances (local database, local Redis, mock APIs) while the team-wide `dev` environment targets shared resources. Local overrides avoid polluting the backend with per-developer environments and keep the source of truth clean.
 
@@ -347,7 +347,7 @@ zuul secret metadata delete <name> <key> [--env <e>]        # Remove a metadata 
 Export all secrets for an environment.
 
 ```
-zuul export --env <e> --format <fmt> [--output <file>] [--no-local]
+zuul export --env <e> --format <fmt> [--output <file>] [--overrides]
 ```
 
 **Built-in formats:**
@@ -371,7 +371,7 @@ zuul export --env dev --format direnv > .envrc
 Inject secrets into a subprocess as environment variables.
 
 ```
-zuul run --env <e> [--no-local] -- <command> [args...]
+zuul run --env <e> [--overrides] -- <command> [args...]
 ```
 
 Fetches all secrets for the given environment, injects them into the child process's environment (merged with the current environment), and executes the command. The parent shell's environment is **not** modified.
@@ -700,12 +700,12 @@ DATABASE_URL = "postgres://localhost:5432/mydb_local"
 REDIS_URL = "redis://localhost:6379"
 EOF
 
-# Run with local overrides applied on top of backend secrets
-zuul run --env dev -- cargo run
+# Run with local overrides
+zuul run --env dev --overrides -- cargo run
 # → DATABASE_URL uses local value, other secrets come from backend
 
-# Verify what the real backend has (skip local overrides)
-zuul run --env dev --no-local -- env | grep DATABASE_URL
+# Run with backend values only (default)
+zuul run --env dev -- env | grep DATABASE_URL
 # → Shows the team-wide dev value from GCP
 ```
 

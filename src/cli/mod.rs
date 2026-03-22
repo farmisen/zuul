@@ -99,9 +99,9 @@ pub enum Command {
         #[arg(long)]
         output: Option<PathBuf>,
 
-        /// Skip local overrides
+        /// Apply local overrides from .zuul.local.toml
         #[arg(long)]
-        no_local: bool,
+        overrides: bool,
     },
 
     /// Inject secrets into a subprocess as environment variables
@@ -110,9 +110,9 @@ pub enum Command {
         #[arg(short, long)]
         env: Option<String>,
 
-        /// Skip local overrides
+        /// Apply local overrides from .zuul.local.toml
         #[arg(long)]
-        no_local: bool,
+        overrides: bool,
 
         /// Command and arguments to run
         #[arg(trailing_var_arg = true, required = true)]
