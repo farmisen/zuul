@@ -1,5 +1,8 @@
 # Zuul, Gatekeeper of Secrets
 
+[![CI](https://github.com/farmisen/zuul/actions/workflows/ci.yml/badge.svg)](https://github.com/farmisen/zuul/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 > *"Are you the Keymaster?"* — Zuul, Ghostbusters (1984)
 
 A CLI tool for managing secrets across multiple environments, with pluggable backend storage.
