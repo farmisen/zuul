@@ -10,8 +10,8 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  check:
-    name: Check & Lint
+  ci:
+    name: Lint & Test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -23,16 +23,6 @@ jobs:
         run: cargo fmt -- --check
       - name: Clippy
         run: cargo clippy -- -D warnings
-      - name: Check
-        run: cargo check
-
-  test:
-    name: Tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
       - name: Unit tests
         run: cargo test --lib
       - name: CLI parsing tests
