@@ -8,8 +8,8 @@ use zuul::backend::gcp::GcpClient;
 use zuul::backend::gcp_backend::GcpBackend;
 use zuul::backend::{Backend, BackendKind};
 use zuul::cli::{
-    Cli, Command, EnvCommand, MetadataCommand, RecoverCommand, SecretCommand, SyncCommand, auth,
-    diff, env, export, import, init, metadata, recover, run, secret,
+    Cli, Command, DeployCommand, EnvCommand, MetadataCommand, RecoverCommand, SecretCommand,
+    SyncCommand, auth, diff, env, export, import, init, metadata, recover, run, secret,
 };
 use zuul::config::{CliOverrides, Config, load_config};
 use zuul::error::ZuulError;
@@ -349,6 +349,34 @@ async fn run(cli: Cli) -> Result<(), ZuulError> {
                 }
                 RecoverCommand::Abort { force } => {
                     recover::abort(project_root, *force, cli.non_interactive)?;
+                }
+            }
+        }
+        Command::Deploy { ref command } => {
+            let config = resolve_config(&cli, None)?;
+            let backend = create_backend(&config).await?;
+            match command {
+                DeployCommand::Fly {
+                    env,
+                    app,
+                    no_sync,
+                    fly_args,
+                } => {
+                    use zuul::cli::deploy;
+
+                    backend.get_environment(env).await?;
+                    let sp = zuul::progress::spinner("Fetching secrets...", progress);
+                    let backend_secrets = backend.list_secrets_for_environment(env).await?;
+                    sp.finish_and_clear();
+
+                    let secrets: std::collections::HashMap<String, String> = backend_secrets
+                        .into_iter()
+                        .map(|(name, sv)| (name, sv.value))
+                        .collect();
+
+                    let exit_code =
+                        deploy::fly::run(secrets, app.as_deref(), *no_sync, fly_args, progress)?;
+                    process::exit(exit_code);
                 }
             }
         }

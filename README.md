@@ -1,4 +1,4 @@
-# Zuul
+# Zuul, Gatekeeper of Secrets
 
 > *"Are you the Keymaster?"* — Zuul, Ghostbusters (1984)
 
@@ -123,6 +123,7 @@ See [`.envrc.example`](.envrc.example) for a ready-to-use template.
 | `zuul import` | Bulk-import secrets from a file |
 | `zuul diff` | Compare secrets between two environments |
 | `zuul recover status\|resume\|abort` | Inspect or resume incomplete batch operations |
+| `zuul deploy fly` | Deploy to Fly.io with secrets synced and injected |
 | `zuul sync netlify` | Sync secrets to Netlify's environment variables |
 | `zuul sync fly` | Sync secrets to Fly.io |
 | `zuul completions <shell>` | Generate shell completions (bash, zsh, fish, etc.) |

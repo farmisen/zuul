@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod deploy;
 pub mod diff;
 pub mod env;
 pub mod export;
@@ -161,6 +162,12 @@ pub enum Command {
         command: RecoverCommand,
     },
 
+    /// Deploy with secrets injected into the build process
+    Deploy {
+        #[command(subcommand)]
+        command: DeployCommand,
+    },
+
     /// Sync secrets to a hosting platform's native environment variable store
     Sync {
         #[command(subcommand)]
@@ -172,6 +179,28 @@ pub enum Command {
         /// Shell to generate completions for
         #[arg(value_enum)]
         shell: clap_complete::Shell,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum DeployCommand {
+    /// Deploy to Fly.io with secrets injected
+    Fly {
+        /// Zuul environment to deploy from (required)
+        #[arg(short, long)]
+        env: String,
+
+        /// Fly app name (auto-detected from fly.toml if omitted)
+        #[arg(long)]
+        app: Option<String>,
+
+        /// Skip syncing secrets to Fly's vault (build-time injection only)
+        #[arg(long)]
+        no_sync: bool,
+
+        /// Extra arguments forwarded to `fly deploy`
+        #[arg(trailing_var_arg = true)]
+        fly_args: Vec<String>,
     },
 }
 
