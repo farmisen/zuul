@@ -196,3 +196,7 @@ docker compose -f docker-compose.emulator.yml down
 - [GCP Backend](docs/backend-gcp.md)
 - [Terraform Module](terraform/README.md)
 - [Environment Admin Playbook](docs/gcp-env-playbook.md) (GCP)
+
+## License
+
+[MIT](LICENSE)

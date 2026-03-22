@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.94"
 description = "CLI tool for managing secrets across multiple environments, backed by pluggable cloud secret managers"
+license = "MIT"
 
 [dependencies]
 age = { package = "age", version = "0.10" }
