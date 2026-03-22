@@ -4,3 +4,5 @@
 .tldrignore
 .zuul.local.toml
 .terraform/
+CLAUDE.md
+docs/implementation-plan.md
