@@ -47,11 +47,16 @@ struct StoredSecret {
 /// Stores all environments, secrets, and metadata in a single encrypted
 /// JSON file using the `age` encryption format. Designed for local
 /// development, small projects, and offline use.
+///
+/// Supports two encryption modes:
+/// - **Identity file** (recommended): uses an X25519 keypair, near-instant
+///   encrypt/decrypt. Works non-interactively (ideal for direnv).
+/// - **Passphrase**: uses scrypt key derivation, ~1s per operation.
+///   Requires `ZUUL_PASSPHRASE` env var or interactive prompt.
 pub struct FileBackend {
     /// Path to the encrypted store file.
     store_path: PathBuf,
     /// Path to an age identity file (if provided).
-    #[allow(dead_code)]
     identity: Option<PathBuf>,
 }
 
@@ -64,18 +69,67 @@ impl FileBackend {
         }
     }
 
-    /// Resolve the passphrase for encryption/decryption.
+    /// Resolve the identity file path.
+    ///
+    /// Resolution order:
+    /// 1. `ZUUL_KEY_FILE` env var
+    /// 2. `identity` field from config
+    fn resolve_identity_path(&self) -> Option<PathBuf> {
+        if let Ok(path) = std::env::var("ZUUL_KEY_FILE") {
+            return Some(PathBuf::from(path));
+        }
+        self.identity.clone()
+    }
+
+    /// Read the age identity from the identity file.
+    fn read_identity(&self) -> Result<Option<age::x25519::Identity>, ZuulError> {
+        let path = match self.resolve_identity_path() {
+            Some(p) => p,
+            None => return Ok(None),
+        };
+
+        if !path.exists() {
+            return Err(ZuulError::Auth(format!(
+                "Identity file '{}' not found.",
+                path.display()
+            )));
+        }
+
+        let contents = fs::read_to_string(&path).map_err(|e| {
+            ZuulError::Auth(format!(
+                "Failed to read identity file '{}': {e}",
+                path.display()
+            ))
+        })?;
+
+        let identity = contents
+            .lines()
+            .filter(|line| !line.starts_with('#') && !line.is_empty())
+            .find_map(|line| line.parse::<age::x25519::Identity>().ok())
+            .ok_or_else(|| {
+                ZuulError::Auth(format!(
+                    "No valid age identity found in '{}'.",
+                    path.display()
+                ))
+            })?;
+
+        Ok(Some(identity))
+    }
+
+    /// Resolve the passphrase for encryption/decryption (fallback when no identity file).
     ///
     /// Resolution order:
     /// 1. `ZUUL_PASSPHRASE` env var
-    /// 2. Interactive prompt (future — errors for now)
+    /// 2. Error (interactive prompt not yet implemented)
     fn resolve_passphrase(&self) -> Result<age::secrecy::SecretString, ZuulError> {
         if let Ok(passphrase) = std::env::var("ZUUL_PASSPHRASE") {
             return Ok(age::secrecy::SecretString::new(passphrase));
         }
 
         Err(ZuulError::Auth(
-            "No passphrase available. Set ZUUL_PASSPHRASE env var.".to_string(),
+            "No credentials available. Set ZUUL_KEY_FILE to an age identity file, \
+             or set ZUUL_PASSPHRASE env var."
+                .to_string(),
         ))
     }
 
@@ -88,7 +142,6 @@ impl FileBackend {
             });
         }
 
-        let passphrase = self.resolve_passphrase()?;
         let ciphertext = fs::read(&self.store_path).map_err(|e| {
             ZuulError::Backend(format!(
                 "Failed to read store '{}': {e}",
@@ -96,23 +149,49 @@ impl FileBackend {
             ))
         })?;
 
-        let decryptor = match age::Decryptor::new(&ciphertext[..])
-            .map_err(|e| ZuulError::Backend(format!("Failed to parse encrypted store: {e}")))?
-        {
-            age::Decryptor::Passphrase(d) => d,
-            _ => {
-                return Err(ZuulError::Backend(
-                    "Store was not encrypted with a passphrase.".to_string(),
-                ));
-            }
-        };
-
         let mut plaintext = Vec::new();
-        decryptor
-            .decrypt(&passphrase, None)
-            .map_err(|e| ZuulError::Backend(format!("Failed to decrypt store: {e}")))?
-            .read_to_end(&mut plaintext)
-            .map_err(|e| ZuulError::Backend(format!("Failed to read decrypted data: {e}")))?;
+
+        // Try identity file first, fall back to passphrase.
+        if let Some(identity) = self.read_identity()? {
+            let decryptor = match age::Decryptor::new(&ciphertext[..])
+                .map_err(|e| ZuulError::Backend(format!("Failed to parse encrypted store: {e}")))?
+            {
+                age::Decryptor::Recipients(d) => d,
+                _ => {
+                    return Err(ZuulError::Backend(
+                        "Store was encrypted with a passphrase but an identity file was provided. \
+                         Re-initialize with `zuul init --backend file` to switch to identity-based encryption."
+                            .to_string(),
+                    ));
+                }
+            };
+
+            decryptor
+                .decrypt(std::iter::once(&identity as &dyn age::Identity))
+                .map_err(|e| ZuulError::Backend(format!("Failed to decrypt store: {e}")))?
+                .read_to_end(&mut plaintext)
+                .map_err(|e| ZuulError::Backend(format!("Failed to read decrypted data: {e}")))?;
+        } else {
+            let passphrase = self.resolve_passphrase()?;
+            let decryptor = match age::Decryptor::new(&ciphertext[..])
+                .map_err(|e| ZuulError::Backend(format!("Failed to parse encrypted store: {e}")))?
+            {
+                age::Decryptor::Passphrase(d) => d,
+                _ => {
+                    return Err(ZuulError::Backend(
+                        "Store was encrypted with an identity file but no identity is configured. \
+                         Set ZUUL_KEY_FILE or add identity to .zuul.toml."
+                            .to_string(),
+                    ));
+                }
+            };
+
+            decryptor
+                .decrypt(&passphrase, None)
+                .map_err(|e| ZuulError::Backend(format!("Failed to decrypt store: {e}")))?
+                .read_to_end(&mut plaintext)
+                .map_err(|e| ZuulError::Backend(format!("Failed to read decrypted data: {e}")))?;
+        }
 
         serde_json::from_slice(&plaintext)
             .map_err(|e| ZuulError::Backend(format!("Failed to parse store JSON: {e}")))
@@ -123,19 +202,37 @@ impl FileBackend {
         let plaintext = serde_json::to_vec_pretty(store)
             .map_err(|e| ZuulError::Backend(format!("Failed to serialize store: {e}")))?;
 
-        let passphrase = self.resolve_passphrase()?;
-        let encryptor = age::Encryptor::with_user_passphrase(passphrase);
-
         let mut ciphertext = Vec::new();
-        let mut writer = encryptor
-            .wrap_output(&mut ciphertext)
-            .map_err(|e| ZuulError::Backend(format!("Failed to initialize encryption: {e}")))?;
-        writer
-            .write_all(&plaintext)
-            .map_err(|e| ZuulError::Backend(format!("Failed to encrypt: {e}")))?;
-        writer
-            .finish()
-            .map_err(|e| ZuulError::Backend(format!("Failed to finalize encryption: {e}")))?;
+
+        // Use identity file if available, otherwise passphrase.
+        if let Some(identity) = self.read_identity()? {
+            let recipient = identity.to_public();
+            let encryptor = age::Encryptor::with_recipients(vec![Box::new(recipient)])
+                .expect("at least one recipient");
+
+            let mut writer = encryptor
+                .wrap_output(&mut ciphertext)
+                .map_err(|e| ZuulError::Backend(format!("Failed to initialize encryption: {e}")))?;
+            writer
+                .write_all(&plaintext)
+                .map_err(|e| ZuulError::Backend(format!("Failed to encrypt: {e}")))?;
+            writer
+                .finish()
+                .map_err(|e| ZuulError::Backend(format!("Failed to finalize encryption: {e}")))?;
+        } else {
+            let passphrase = self.resolve_passphrase()?;
+            let encryptor = age::Encryptor::with_user_passphrase(passphrase);
+
+            let mut writer = encryptor
+                .wrap_output(&mut ciphertext)
+                .map_err(|e| ZuulError::Backend(format!("Failed to initialize encryption: {e}")))?;
+            writer
+                .write_all(&plaintext)
+                .map_err(|e| ZuulError::Backend(format!("Failed to encrypt: {e}")))?;
+            writer
+                .finish()
+                .map_err(|e| ZuulError::Backend(format!("Failed to finalize encryption: {e}")))?;
+        }
 
         // Write atomically: write to temp file, then rename.
         let tmp_path = self.store_path.with_extension("tmp");

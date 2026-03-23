@@ -1,8 +1,10 @@
 use std::fs;
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use console::style;
+
+use age::secrecy::ExposeSecret;
 
 use crate::backend::file_backend::DEFAULT_STORE_FILE;
 use crate::error::ZuulError;
@@ -83,20 +85,163 @@ fn init_gcp_backend(
     Ok(())
 }
 
+/// Default identity file path.
+const DEFAULT_IDENTITY_DIR: &str = ".zuul";
+const DEFAULT_IDENTITY_FILE: &str = "key.txt";
+
 /// Initialize the file-based encrypted backend.
+///
+/// Initializes the file-based encrypted backend.
+///
+/// In non-interactive mode, uses env vars to determine the encryption mode:
+/// - `ZUUL_KEY_FILE` → identity file
+/// - `ZUUL_PASSPHRASE` → passphrase
+///
+/// In interactive mode, prompts the user to choose.
 fn init_file_backend(
     dir: &Path,
     config_path: &Path,
     non_interactive: bool,
 ) -> Result<(), ZuulError> {
-    let passphrase = match std::env::var("ZUUL_PASSPHRASE") {
-        Ok(p) => p,
-        Err(_) => prompt::password(
-            "Choose a passphrase for encrypting secrets",
-            non_interactive,
-        )?,
-    };
+    // Non-interactive: env vars determine the mode.
+    if non_interactive {
+        if std::env::var("ZUUL_KEY_FILE").is_ok() {
+            // Identity mode via env var
+        } else if std::env::var("ZUUL_PASSPHRASE").is_ok() {
+            return init_file_backend_passphrase(dir, config_path);
+        } else {
+            return Err(ZuulError::Validation(
+                "Non-interactive mode requires ZUUL_KEY_FILE or ZUUL_PASSPHRASE to be set."
+                    .to_string(),
+            ));
+        }
+    } else if std::env::var("ZUUL_KEY_FILE").is_ok() {
+        // Explicit env var override — skip prompt
+    } else if std::env::var("ZUUL_PASSPHRASE").is_ok() {
+        return init_file_backend_passphrase(dir, config_path);
+    } else {
+        // Interactive: ask the user
+        println!("\nHow would you like to secure your secrets?\n");
+        println!("  1. Identity file (recommended) — fast, works with direnv");
+        println!("  2. Passphrase — portable, no key file to manage, does not work with direnv\n");
 
+        let choice = prompt::input("Choice [1]", non_interactive)?;
+        let choice = choice.trim();
+
+        if choice == "2" {
+            let passphrase = prompt::password(
+                "Choose a passphrase for encrypting secrets",
+                non_interactive,
+            )?;
+            // Temporarily set ZUUL_PASSPHRASE so init_file_backend_passphrase can use it
+            return init_file_backend_with_passphrase(dir, config_path, &passphrase);
+        }
+        // choice == "1" or empty (default) → identity file
+    }
+
+    // Resolve identity file path:
+    // 1. ZUUL_KEY_FILE env var (explicit override)
+    // 2. Default: ~/.zuul/key.txt
+    let identity_path = if let Ok(path) = std::env::var("ZUUL_KEY_FILE") {
+        PathBuf::from(path)
+    } else {
+        let home = std::env::var("HOME")
+            .map_err(|_| ZuulError::Config("HOME environment variable not set.".to_string()))?;
+        PathBuf::from(&home)
+            .join(DEFAULT_IDENTITY_DIR)
+            .join(DEFAULT_IDENTITY_FILE)
+    };
+    let identity_dir = identity_path
+        .parent()
+        .ok_or_else(|| ZuulError::Config("Invalid identity file path.".to_string()))?;
+
+    if identity_path.exists() {
+        // Reuse existing identity file
+        println!("Using existing identity file: {}", identity_path.display());
+    } else {
+        // Generate a new keypair
+        fs::create_dir_all(identity_dir).map_err(|e| {
+            ZuulError::Config(format!(
+                "Failed to create directory '{}': {e}",
+                identity_dir.display()
+            ))
+        })?;
+
+        let identity = age::x25519::Identity::generate();
+        let public_key = identity.to_public();
+
+        let key_content = format!(
+            "# created: {}\n# public key: {}\n{}\n",
+            chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ"),
+            public_key,
+            identity.to_string().expose_secret()
+        );
+
+        fs::write(&identity_path, &key_content).map_err(|e| {
+            ZuulError::Config(format!(
+                "Failed to write identity file '{}': {e}",
+                identity_path.display()
+            ))
+        })?;
+
+        // Set restrictive permissions (Unix only).
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&identity_path, fs::Permissions::from_mode(0o600)).map_err(
+                |e| {
+                    ZuulError::Config(format!(
+                        "Failed to set permissions on '{}': {e}",
+                        identity_path.display()
+                    ))
+                },
+            )?;
+        }
+
+        println!("Generated identity file: {}", identity_path.display());
+    }
+
+    let identity_path_str = format!("~/{DEFAULT_IDENTITY_DIR}/{DEFAULT_IDENTITY_FILE}");
+    let config_content = format!(
+        "[backend]\n\
+         type = \"file\"\n\
+         # path = \"{DEFAULT_STORE_FILE}\"    # default\n\
+         identity = \"{identity_path_str}\"\n\
+         \n\
+         [defaults]\n\
+         environment = \"dev\"\n"
+    );
+
+    fs::write(config_path, &config_content)
+        .map_err(|e| ZuulError::Config(format!("Failed to write {CONFIG_FILE}: {e}")))?;
+
+    // Create the empty encrypted store using the identity.
+    let store_path = dir.join(DEFAULT_STORE_FILE);
+    create_empty_store_with_identity(&store_path, &identity_path)?;
+
+    // Add the encrypted store to .gitignore (it contains secrets).
+    add_to_gitignore(dir, DEFAULT_STORE_FILE)?;
+
+    println!("\nNext steps:");
+    println!("  zuul env create dev               # Create your first environment");
+    println!("  zuul secret set KEY --env dev      # Set a secret");
+
+    Ok(())
+}
+
+/// Initialize the file backend with passphrase from `ZUUL_PASSPHRASE` env var.
+fn init_file_backend_passphrase(dir: &Path, config_path: &Path) -> Result<(), ZuulError> {
+    let passphrase = std::env::var("ZUUL_PASSPHRASE")
+        .map_err(|_| ZuulError::Auth("ZUUL_PASSPHRASE env var not set.".to_string()))?;
+    init_file_backend_with_passphrase(dir, config_path, &passphrase)
+}
+
+/// Initialize the file backend with a given passphrase.
+fn init_file_backend_with_passphrase(
+    dir: &Path,
+    config_path: &Path,
+    passphrase: &str,
+) -> Result<(), ZuulError> {
     let config_content = format!(
         "[backend]\n\
          type = \"file\"\n\
@@ -109,11 +254,9 @@ fn init_file_backend(
     fs::write(config_path, &config_content)
         .map_err(|e| ZuulError::Config(format!("Failed to write {CONFIG_FILE}: {e}")))?;
 
-    // Create the empty encrypted store.
     let store_path = dir.join(DEFAULT_STORE_FILE);
-    create_empty_store(&store_path, &passphrase)?;
+    create_empty_store_with_passphrase(&store_path, passphrase)?;
 
-    // Add the encrypted store to .gitignore (it contains secrets).
     add_to_gitignore(dir, DEFAULT_STORE_FILE)?;
 
     println!("\nNext steps:");
@@ -123,8 +266,69 @@ fn init_file_backend(
     Ok(())
 }
 
-/// Create an empty encrypted store file.
-fn create_empty_store(store_path: &Path, passphrase: &str) -> Result<(), ZuulError> {
+/// Create an empty encrypted store using an age identity file.
+fn create_empty_store_with_identity(
+    store_path: &Path,
+    identity_path: &Path,
+) -> Result<(), ZuulError> {
+    use std::io::Write as _;
+
+    let contents = fs::read_to_string(identity_path).map_err(|e| {
+        ZuulError::Config(format!(
+            "Failed to read identity file '{}': {e}",
+            identity_path.display()
+        ))
+    })?;
+
+    let identity: age::x25519::Identity = contents
+        .lines()
+        .filter(|line| !line.starts_with('#') && !line.is_empty())
+        .find_map(|line| line.parse().ok())
+        .ok_or_else(|| {
+            ZuulError::Config(format!(
+                "No valid age identity found in '{}'.",
+                identity_path.display()
+            ))
+        })?;
+
+    let recipient = identity.to_public();
+    let empty_store = serde_json::json!({
+        "version": 1,
+        "environments": {},
+        "secrets": {},
+        "metadata": {}
+    });
+    let plaintext = serde_json::to_vec_pretty(&empty_store)
+        .map_err(|e| ZuulError::Backend(format!("Failed to serialize empty store: {e}")))?;
+
+    let encryptor =
+        age::Encryptor::with_recipients(vec![Box::new(recipient)]).expect("at least one recipient");
+    let mut ciphertext = Vec::new();
+    let mut writer = encryptor
+        .wrap_output(&mut ciphertext)
+        .map_err(|e| ZuulError::Backend(format!("Failed to initialize encryption: {e}")))?;
+    writer
+        .write_all(&plaintext)
+        .map_err(|e| ZuulError::Backend(format!("Failed to encrypt: {e}")))?;
+    writer
+        .finish()
+        .map_err(|e| ZuulError::Backend(format!("Failed to finalize encryption: {e}")))?;
+
+    fs::write(store_path, &ciphertext).map_err(|e| {
+        ZuulError::Backend(format!(
+            "Failed to write store '{}': {e}",
+            store_path.display()
+        ))
+    })?;
+
+    Ok(())
+}
+
+/// Create an empty encrypted store using a passphrase.
+fn create_empty_store_with_passphrase(
+    store_path: &Path,
+    passphrase: &str,
+) -> Result<(), ZuulError> {
     use std::io::Write as _;
 
     let empty_store = serde_json::json!({

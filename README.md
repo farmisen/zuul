@@ -38,7 +38,7 @@ A CLI tool for managing secrets across multiple environments, with pluggable bac
 cargo install --path .
 
 zuul init --backend file
-# Enter a passphrase (or set ZUUL_PASSPHRASE env var)
+# Choose: identity file (recommended) or passphrase
 
 zuul env create dev
 zuul secret set DATABASE_URL --env dev "postgres://localhost/mydb"
@@ -148,8 +148,8 @@ Use `zuul --help` or `zuul <command> --help` for details.
 
 | Variable | Description |
 |----------|-------------|
-| `ZUUL_PASSPHRASE` | Passphrase for encrypting/decrypting the store |
-| `ZUUL_KEY_FILE` | Path to an age identity file |
+| `ZUUL_KEY_FILE` | Path to an age identity file (recommended) |
+| `ZUUL_PASSPHRASE` | Passphrase for scrypt-based encryption (fallback) |
 
 **GCP backend:**
 

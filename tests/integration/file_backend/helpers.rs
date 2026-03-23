@@ -27,14 +27,41 @@ pub fn zuul_bin() -> &'static str {
     })
 }
 
-/// Run a zuul command in a given working directory with ZUUL_PASSPHRASE set.
+/// Generate an age identity file once (shared across all tests) and return the path.
+///
+/// Uses an X25519 keypair instead of passphrase-based encryption for
+/// near-instant encrypt/decrypt (avoids ~1s scrypt per operation).
+fn test_identity_file() -> &'static str {
+    static IDENTITY_PATH: OnceLock<String> = OnceLock::new();
+    IDENTITY_PATH.get_or_init(|| {
+        let dir = std::env::temp_dir().join("zuul-test-identity");
+        std::fs::create_dir_all(&dir).expect("failed to create test identity dir");
+        let path = dir.join("key.txt");
+
+        if !path.exists() {
+            let identity = age::x25519::Identity::generate();
+            let public_key = identity.to_public();
+            use age::secrecy::ExposeSecret;
+            let content = format!(
+                "# test identity\n# public key: {}\n{}\n",
+                public_key,
+                identity.to_string().expose_secret()
+            );
+            std::fs::write(&path, &content).expect("failed to write test identity");
+        }
+
+        path.to_string_lossy().into_owned()
+    })
+}
+
+/// Run a zuul command in a given working directory with the test identity file.
 pub fn zuul(bin: &str, work_dir: &Path, args: &[&str]) -> Output {
     let mut full_args = vec!["--non-interactive", "--no-color"];
     full_args.extend_from_slice(args);
     Command::new(bin)
         .args(&full_args)
         .current_dir(work_dir)
-        .env("ZUUL_PASSPHRASE", "test-passphrase")
+        .env("ZUUL_KEY_FILE", test_identity_file())
         .output()
         .unwrap_or_else(|e| panic!("failed to run zuul {}: {e}", args.join(" ")))
 }
@@ -74,7 +101,7 @@ pub fn zuul_stdin(bin: &str, work_dir: &Path, args: &[&str], input: &str) -> Out
     let mut child = Command::new(bin)
         .args(&full_args)
         .current_dir(work_dir)
-        .env("ZUUL_PASSPHRASE", "test-passphrase")
+        .env("ZUUL_KEY_FILE", test_identity_file())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -95,12 +122,8 @@ pub fn setup_project() -> tempfile::TempDir {
     let config = "[backend]\ntype = \"file\"\n\n[defaults]\nenvironment = \"dev\"\n";
     std::fs::write(dir.path().join(".zuul.toml"), config).expect("failed to write .zuul.toml");
 
-    // Create the empty encrypted store so the backend works without `zuul init`.
-    let bin = zuul_bin();
-    // We can't easily create the store without the CLI, so just let the first
-    // write operation create it implicitly (FileBackend handles missing files).
-    // But we need the env to exist, so we'll create it in each test.
-    let _ = bin; // ensure binary is built
+    // Ensure binary is built
+    let _ = zuul_bin();
 
     dir
 }
