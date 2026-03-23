@@ -1,6 +1,7 @@
 # Zuul, Gatekeeper of Secrets
 
 [![CI](https://github.com/farmisen/zuul/actions/workflows/ci.yml/badge.svg)](https://github.com/farmisen/zuul/actions/workflows/ci.yml)
+[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=farmisen_zuul&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=farmisen_zuul)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 > *"Are you the Keymaster?"* — Zuul, Ghostbusters (1984)
