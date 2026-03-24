@@ -430,17 +430,28 @@ impl Backend for GcpBackend {
         &self,
         environment: &str,
     ) -> Result<Vec<(String, SecretValue)>, ZuulError> {
-        let entries = self.list_secrets(Some(environment)).await?;
+        use futures::stream::{self, StreamExt};
 
-        let mut results = Vec::new();
-        for entry in &entries {
-            match self.get_secret(&entry.name, environment).await {
-                Ok(secret_value) => {
-                    results.push((entry.name.clone(), secret_value));
+        /// Max concurrent `AccessSecretVersion` requests.
+        /// GCP allows 90,000/min (1,500/sec); 20 is conservative.
+        const MAX_CONCURRENT: usize = 20;
+
+        let entries = self.list_secrets(Some(environment)).await?;
+        let env = environment.to_string();
+
+        let results: Vec<_> = stream::iter(entries.into_iter().map(|entry| {
+            let env = env.clone();
+            async move {
+                match self.get_secret(&entry.name, &env).await {
+                    Ok(secret_value) => Some((entry.name, secret_value)),
+                    Err(_) => None,
                 }
-                Err(_) => continue,
             }
-        }
+        }))
+        .buffer_unordered(MAX_CONCURRENT)
+        .filter_map(|r| async { r })
+        .collect()
+        .await;
 
         Ok(results)
     }
