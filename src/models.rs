@@ -36,6 +36,17 @@ pub struct SecretValue {
     pub updated_at: DateTime<Utc>,
 }
 
+/// Represents an IAM access binding for a zuul environment.
+#[derive(Debug, Clone)]
+pub struct AccessBinding {
+    /// Identity (email, service account, group, etc.)
+    pub identity: String,
+    /// Environment name this binding applies to, or None for project-wide access.
+    pub environment: Option<String>,
+    /// Access level (e.g., "admin", "read", "write")
+    pub role: String,
+}
+
 /// Project-level registry of environments, stored as a backend secret.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Registry {

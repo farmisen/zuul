@@ -29,10 +29,16 @@ locals {
     if startswith(member, "user:")
   } : {}
 
+  # Derive unique SA name from email: "user:alice@company.com" → "alice-company"
+  # Includes domain (without TLD) to avoid collisions when the same username
+  # exists across different domains.
   developer_sa_names = {
-    for member, cfg in local.developer_sa_members : member => replace(
-      regex("^user:([^@]+)@.*$", member)[0],
-      ".", "-"
+    for member, cfg in local.developer_sa_members : member => substr(
+      join("-", [
+        replace(regex("^user:([^@]+)@", member)[0], ".", "-"),
+        replace(regex("@([^.]+)\\.", member)[0], ".", "-"),
+      ]),
+      0, 21  # Max 21 chars — "zuul-dev-" prefix adds 9, total max 30
     )
   }
 
@@ -170,6 +176,15 @@ resource "google_service_account" "developer" {
   project      = var.project_id
   account_id   = "zuul-dev-${each.value}"
   display_name = "Zuul developer SA for ${each.value}"
+}
+
+# Developer SAs get project-level browser access (needed for zuul audit)
+resource "google_project_iam_member" "dev_sa_browser" {
+  for_each = local.developer_sa_names
+
+  project = var.project_id
+  role    = "roles/browser"
+  member  = "serviceAccount:${google_service_account.developer[each.key].email}"
 }
 
 # Admin developer SAs get project-wide secretmanager.admin

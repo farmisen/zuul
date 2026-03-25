@@ -1,3 +1,4 @@
+pub mod audit;
 pub mod auth;
 pub mod deploy;
 pub mod diff;
@@ -176,6 +177,17 @@ pub enum Command {
     Sync {
         #[command(subcommand)]
         command: SyncCommand,
+    },
+
+    /// Show who has access to zuul-managed secrets
+    Audit {
+        /// Filter to a specific environment
+        #[arg(short, long)]
+        env: Option<String>,
+
+        /// Filter to a specific identity (email, service account)
+        #[arg(long)]
+        identity: Option<String>,
     },
 
     /// Generate shell completions

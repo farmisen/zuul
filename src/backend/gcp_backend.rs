@@ -25,12 +25,17 @@ fn wkt_timestamp_to_chrono(ts: Option<google_cloud_wkt::Timestamp>) -> DateTime<
 /// environment metadata in a `zuul__registry` secret as JSON.
 pub struct GcpBackend {
     client: GcpClient,
+    /// Resolved credentials file path (for gcloud CLI commands like audit).
+    credentials_path: Option<String>,
 }
 
 impl GcpBackend {
     /// Create a new GCP backend wrapping the given client.
-    pub fn new(client: GcpClient) -> Self {
-        Self { client }
+    pub fn new(client: GcpClient, credentials_path: Option<String>) -> Self {
+        Self {
+            client,
+            credentials_path,
+        }
     }
 
     /// Build the GCP secret ID for a zuul-managed secret.
@@ -455,6 +460,125 @@ impl Backend for GcpBackend {
 
         Ok(results)
     }
+
+    async fn audit_access(&self) -> Result<Vec<crate::models::AccessBinding>, ZuulError> {
+        let mut args = vec![
+            "projects".to_string(),
+            "get-iam-policy".to_string(),
+            self.client.project_id.clone(),
+            "--format=json".to_string(),
+        ];
+
+        // Use the configured SA key so gcloud authenticates as the right identity,
+        // regardless of which gcloud account is currently active.
+        if let Some(ref creds) = self.credentials_path {
+            let expanded = crate::config::expand_tilde(creds);
+            args.push(format!("--credential-file-override={expanded}"));
+        }
+
+        let output = std::process::Command::new("gcloud")
+            .args(&args)
+            .output()
+            .map_err(|e| {
+                ZuulError::Backend(format!(
+                    "Failed to run 'gcloud projects get-iam-policy': {e}. Is the gcloud CLI installed?"
+                ))
+            })?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(ZuulError::Backend(format!(
+                "gcloud get-iam-policy failed: {stderr}"
+            )));
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let policy: serde_json::Value = serde_json::from_str(&stdout)
+            .map_err(|e| ZuulError::Backend(format!("Failed to parse IAM policy: {e}")))?;
+
+        parse_iam_policy(&policy, &self.client.project_id)
+    }
+}
+
+/// Map a GCP IAM role to a zuul access level.
+fn map_role(role: &str) -> Option<&str> {
+    match role {
+        "roles/secretmanager.admin" => Some("admin"),
+        "roles/secretmanager.secretAccessor" => Some("read"),
+        "roles/secretmanager.secretVersionManager" => Some("write"),
+        _ => None,
+    }
+}
+
+/// Extract the zuul environment name from an IAM condition expression.
+fn extract_env_from_condition(expression: &str, project_id: &str) -> Option<String> {
+    let prefix = format!("resource.name.startsWith(\"projects/{project_id}/secrets/zuul__");
+    if let Some(rest) = expression.strip_prefix(&prefix)
+        && let Some(env) = rest.strip_suffix("__\")")
+    {
+        return Some(env.to_string());
+    }
+    None
+}
+
+/// Parse a GCP IAM policy JSON into zuul AccessBindings.
+fn parse_iam_policy(
+    policy: &serde_json::Value,
+    project_id: &str,
+) -> Result<Vec<crate::models::AccessBinding>, ZuulError> {
+    let bindings = policy
+        .get("bindings")
+        .and_then(|b| b.as_array())
+        .unwrap_or(&Vec::new())
+        .clone();
+
+    let mut result = Vec::new();
+
+    for binding in &bindings {
+        let role = binding.get("role").and_then(|r| r.as_str()).unwrap_or("");
+        let zuul_role = match map_role(role) {
+            Some(r) => r,
+            None => continue,
+        };
+
+        let members = binding
+            .get("members")
+            .and_then(|m| m.as_array())
+            .cloned()
+            .unwrap_or_default();
+
+        let condition_expr = binding
+            .get("condition")
+            .and_then(|c| c.get("expression"))
+            .and_then(|e| e.as_str());
+
+        let environment =
+            condition_expr.and_then(|expr| extract_env_from_condition(expr, project_id));
+
+        // Skip bindings with conditions that don't match an environment
+        // (e.g., registry reader bindings). Only include bindings that are
+        // either unconditional (project-wide) or match a zuul environment.
+        if condition_expr.is_some() && environment.is_none() {
+            continue;
+        }
+
+        for member in &members {
+            if let Some(identity) = member.as_str() {
+                result.push(crate::models::AccessBinding {
+                    identity: identity.to_string(),
+                    environment: environment.clone(),
+                    role: zuul_role.to_string(),
+                });
+            }
+        }
+    }
+
+    result.sort_by(|a, b| {
+        a.identity
+            .cmp(&b.identity)
+            .then(a.environment.cmp(&b.environment))
+    });
+    Ok(result)
 }
 
 #[cfg(test)]
@@ -652,5 +776,84 @@ mod tests {
             registry.environments["production"].description.as_deref(),
             Some("Live production environment")
         );
+    }
+
+    #[test]
+    fn map_role_admin() {
+        assert_eq!(map_role("roles/secretmanager.admin"), Some("admin"));
+    }
+
+    #[test]
+    fn map_role_accessor() {
+        assert_eq!(map_role("roles/secretmanager.secretAccessor"), Some("read"));
+    }
+
+    #[test]
+    fn map_role_writer() {
+        assert_eq!(
+            map_role("roles/secretmanager.secretVersionManager"),
+            Some("write")
+        );
+    }
+
+    #[test]
+    fn map_role_unknown() {
+        assert_eq!(map_role("roles/viewer"), None);
+    }
+
+    #[test]
+    fn extract_env_valid() {
+        let expr = r#"resource.name.startsWith("projects/my-proj/secrets/zuul__dev__")"#;
+        assert_eq!(
+            extract_env_from_condition(expr, "my-proj"),
+            Some("dev".to_string())
+        );
+    }
+
+    #[test]
+    fn extract_env_no_match() {
+        let expr = r#"resource.name == "projects/my-proj/secrets/zuul__registry""#;
+        assert_eq!(extract_env_from_condition(expr, "my-proj"), None);
+    }
+
+    #[test]
+    fn parse_iam_policy_basic() {
+        let policy = serde_json::json!({
+            "bindings": [
+                {
+                    "role": "roles/secretmanager.admin",
+                    "members": ["user:admin@co.com"]
+                },
+                {
+                    "role": "roles/secretmanager.secretAccessor",
+                    "members": ["user:dev@co.com"],
+                    "condition": {
+                        "expression": "resource.name.startsWith(\"projects/my-proj/secrets/zuul__dev__\")"
+                    }
+                }
+            ]
+        });
+        let bindings = parse_iam_policy(&policy, "my-proj").unwrap();
+        assert_eq!(bindings.len(), 2);
+        assert_eq!(bindings[0].identity, "user:admin@co.com");
+        assert_eq!(bindings[0].role, "admin");
+        assert!(bindings[0].environment.is_none());
+        assert_eq!(bindings[1].identity, "user:dev@co.com");
+        assert_eq!(bindings[1].role, "read");
+        assert_eq!(bindings[1].environment.as_deref(), Some("dev"));
+    }
+
+    #[test]
+    fn parse_iam_policy_skips_non_secretmanager_roles() {
+        let policy = serde_json::json!({
+            "bindings": [
+                {
+                    "role": "roles/viewer",
+                    "members": ["user:someone@co.com"]
+                }
+            ]
+        });
+        let bindings = parse_iam_policy(&policy, "my-proj").unwrap();
+        assert!(bindings.is_empty());
     }
 }

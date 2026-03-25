@@ -39,7 +39,7 @@ fn init_with_project() {
 fn auth_check() {
     let cli = parse(&["auth", "--check"]);
     match cli.command {
-        Command::Auth { check } => assert!(check),
+        Command::Auth { check, .. } => assert!(check),
         _ => panic!("expected Auth"),
     }
 }

@@ -19,6 +19,12 @@ resource "google_project_service" "secret_manager" {
   disable_on_destroy = false
 }
 
+resource "google_project_service" "resource_manager" {
+  project            = var.project_id
+  service            = "cloudresourcemanager.googleapis.com"
+  disable_on_destroy = false
+}
+
 # --- Zuul environment registry ---
 
 # Terraform owns the environment registry — `terraform apply` is the single

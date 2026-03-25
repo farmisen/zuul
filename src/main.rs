@@ -9,7 +9,7 @@ use zuul::backend::gcp_backend::GcpBackend;
 use zuul::backend::{Backend, BackendKind};
 use zuul::cli::{
     Cli, Command, DeployCommand, EnvCommand, MetadataCommand, RecoverCommand, SecretCommand,
-    SyncCommand, auth, diff, env, export, import, init, metadata, recover, run, secret,
+    SyncCommand, audit, auth, diff, env, export, import, init, metadata, recover, run, secret,
 };
 use zuul::config::{CliOverrides, Config, load_config};
 use zuul::error::ZuulError;
@@ -56,7 +56,10 @@ async fn create_backend(config: &Config) -> Result<BackendKind, ZuulError> {
                 )
             })?;
             let client = GcpClient::new(project_id, config.credentials.as_deref()).await?;
-            Ok(BackendKind::Gcp(GcpBackend::new(client)))
+            Ok(BackendKind::Gcp(GcpBackend::new(
+                client,
+                config.credentials.clone(),
+            )))
         }
         "file" => {
             let config_dir = config.config_dir.as_deref().ok_or_else(|| {
@@ -478,6 +481,14 @@ async fn run(cli: Cli) -> Result<(), ZuulError> {
                     }
                 }
             }
+        }
+        Command::Audit {
+            ref env,
+            ref identity,
+        } => {
+            let config = resolve_config(&cli, None)?;
+            let backend = create_backend(&config).await?;
+            audit::run(&backend, env.as_deref(), identity.as_deref(), &cli.format).await?;
         }
         Command::Completions { shell } => {
             let mut cmd = Cli::command();

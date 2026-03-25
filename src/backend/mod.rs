@@ -114,6 +114,13 @@ pub trait Backend: Send + Sync {
         &self,
         environment: &str,
     ) -> impl Future<Output = Result<Vec<(String, SecretValue)>, ZuulError>> + Send;
+
+    // --- Audit operations ---
+
+    /// Return IAM access bindings relevant to zuul-managed secrets.
+    fn audit_access(
+        &self,
+    ) -> impl Future<Output = Result<Vec<crate::models::AccessBinding>, ZuulError>> + Send;
 }
 
 /// Concrete backend dispatcher.
@@ -218,5 +225,9 @@ impl Backend for BackendKind {
         environment: &str,
     ) -> Result<Vec<(String, SecretValue)>, ZuulError> {
         delegate!(self, list_secrets_for_environment, environment)
+    }
+
+    async fn audit_access(&self) -> Result<Vec<crate::models::AccessBinding>, ZuulError> {
+        delegate!(self, audit_access)
     }
 }

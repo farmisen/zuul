@@ -696,4 +696,12 @@ impl Backend for FileBackend {
             Ok(result)
         })
     }
+
+    async fn audit_access(&self) -> Result<Vec<crate::models::AccessBinding>, ZuulError> {
+        Err(ZuulError::Unsupported(
+            "Audit is not available for the file backend. \
+             Access is controlled by filesystem permissions and identity file/passphrase knowledge."
+                .to_string(),
+        ))
+    }
 }

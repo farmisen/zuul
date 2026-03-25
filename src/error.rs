@@ -33,6 +33,9 @@ pub enum ZuulError {
 
     /// Authentication error (missing or expired credentials).
     Auth(String),
+
+    /// The operation is not supported by the current backend.
+    Unsupported(String),
 }
 
 /// The type of resource referenced in an error.
@@ -105,6 +108,8 @@ impl fmt::Display for ZuulError {
             ZuulError::Config(msg) => write!(f, "{msg}"),
 
             ZuulError::Auth(msg) => write!(f, "{msg} Run 'zuul auth' to set up authentication."),
+
+            ZuulError::Unsupported(msg) => write!(f, "{msg}"),
         }
     }
 }
@@ -214,5 +219,13 @@ mod tests {
         let msg = err.to_string();
         assert!(msg.contains("No valid credentials found"));
         assert!(msg.contains("zuul auth"));
+    }
+
+    #[test]
+    fn unsupported_error() {
+        let err =
+            ZuulError::Unsupported("audit is not available for the file backend.".to_string());
+        let msg = err.to_string();
+        assert!(msg.contains("not available"));
     }
 }

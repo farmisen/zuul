@@ -467,4 +467,10 @@ impl Backend for MockBackend {
         });
         async move { result }
     }
+
+    async fn audit_access(&self) -> Result<Vec<zuul::models::AccessBinding>, ZuulError> {
+        Err(ZuulError::Unsupported(
+            "Audit is not available for the mock backend.".to_string(),
+        ))
+    }
 }

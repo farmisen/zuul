@@ -54,6 +54,7 @@ pub fn input(message: &str, non_interactive: bool) -> Result<String, ZuulError> 
     }
     Input::new()
         .with_prompt(message)
+        .allow_empty(true)
         .interact_text()
         .map_err(|e| ZuulError::Config(format!("Failed to read input: {e}")))
 }

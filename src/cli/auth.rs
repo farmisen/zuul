@@ -130,7 +130,7 @@ async fn try_gcp_connect(
     credentials: Option<&str>,
 ) -> Result<GcpBackend, ZuulError> {
     let client = GcpClient::new(project_id, credentials).await?;
-    let backend = GcpBackend::new(client);
+    let backend = GcpBackend::new(client, credentials.map(String::from));
     backend.list_secrets(None).await?;
     Ok(backend)
 }
