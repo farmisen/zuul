@@ -100,9 +100,9 @@ async fn run(cli: Cli) -> Result<(), ZuulError> {
             let cwd = get_cwd()?;
             init::run(&cwd, project, &backend, cli.non_interactive)?;
         }
-        Command::Auth { check } => {
+        Command::Auth { check, reconfigure } => {
             let config = resolve_config(&cli, None)?;
-            auth::run(&config, check, cli.non_interactive).await?;
+            auth::run(&config, check, reconfigure, cli.non_interactive).await?;
         }
         Command::Env { ref command } => {
             let config = resolve_config(&cli, None)?;

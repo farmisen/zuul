@@ -72,6 +72,10 @@ pub enum Command {
         /// Non-interactive validation only (exit code 0/1)
         #[arg(long)]
         check: bool,
+
+        /// Re-prompt for credentials even if already authenticated
+        #[arg(long)]
+        reconfigure: bool,
     },
 
     /// Manage environments

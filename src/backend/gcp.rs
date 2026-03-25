@@ -70,39 +70,68 @@ impl GcpClient {
     /// 2. `credentials` argument (from config or CLI) — file path or inline JSON.
     /// 3. Application Default Credentials (ADC) — e.g., from `gcloud auth application-default login`.
     pub async fn new(project_id: &str, credentials: Option<&str>) -> Result<Self, ZuulError> {
-        let client = if let Ok(emulator_host) = env::var(EMULATOR_HOST_ENV) {
-            // Connect to emulator with a static dummy token.
-            let creds = google_cloud_auth::credentials::anonymous::Builder::new().build();
+        let auth_err = |e| ZuulError::Auth(format!("Failed to authenticate with GCP: {e}."));
+        let owned_creds = credentials.map(String::from);
 
-            SecretManagerService::builder()
-                .with_endpoint(&emulator_host)
-                .with_credentials(creds)
-                .build()
-                .await
-        } else {
-            // Resolve credentials: explicit path/JSON > ZUUL_GCP_CREDENTIALS env > ADC.
-            let raw = credentials
-                .map(String::from)
-                .or_else(|| env::var("ZUUL_GCP_CREDENTIALS").ok());
-
-            if let Some(raw) = raw {
-                let json = resolve_credentials(&raw)?;
-                let creds = google_cloud_auth::credentials::service_account::Builder::new(json)
-                    .build()
-                    .map_err(|e| {
-                        ZuulError::Auth(format!("Failed to load service account credentials: {e}"))
-                    })?;
+        let client_future = async move {
+            let result: Result<SecretManagerService, ZuulError> = if let Ok(emulator_host) =
+                env::var(EMULATOR_HOST_ENV)
+            {
+                // Connect to emulator with a static dummy token.
+                let creds = google_cloud_auth::credentials::anonymous::Builder::new().build();
 
                 SecretManagerService::builder()
+                    .with_endpoint(&emulator_host)
                     .with_credentials(creds)
                     .build()
                     .await
+                    .map_err(auth_err)
             } else {
-                // Fall back to ADC.
-                SecretManagerService::builder().build().await
-            }
-        }
-        .map_err(|e| ZuulError::Auth(format!("Failed to authenticate with GCP: {e}.")))?;
+                // Resolve credentials: explicit path/JSON > ZUUL_GCP_CREDENTIALS env > ADC.
+                let raw = owned_creds
+                    .clone()
+                    .or_else(|| env::var("ZUUL_GCP_CREDENTIALS").ok());
+
+                if let Some(raw) = raw {
+                    let json = resolve_credentials(&raw)?;
+                    let creds = google_cloud_auth::credentials::service_account::Builder::new(json)
+                        .build()
+                        .map_err(|e| {
+                            ZuulError::Auth(format!(
+                                "Failed to load service account credentials: {e}"
+                            ))
+                        })?;
+
+                    SecretManagerService::builder()
+                        .with_credentials(creds)
+                        .build()
+                        .await
+                        .map_err(auth_err)
+                } else {
+                    // Fall back to ADC. Check if credentials exist first to avoid
+                    // the SDK hanging for ~60s retrying the metadata server.
+                    let adc_path = std::env::var("HOME")
+                        .map(|h| {
+                            std::path::PathBuf::from(h)
+                                .join(".config/gcloud/application_default_credentials.json")
+                        })
+                        .ok();
+                    let has_adc = adc_path.as_ref().is_some_and(|p| p.exists());
+
+                    if !has_adc {
+                        return Err(ZuulError::Auth("No credentials found.".to_string()));
+                    }
+
+                    SecretManagerService::builder()
+                        .build()
+                        .await
+                        .map_err(auth_err)
+                }
+            };
+            result
+        };
+
+        let client = client_future.await?;
 
         Ok(Self {
             client,

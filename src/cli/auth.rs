@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::process::Command as ProcessCommand;
 
 use console::style;
@@ -12,9 +13,14 @@ use crate::prompt;
 /// Run the `zuul auth` command.
 ///
 /// Dispatches to the appropriate backend-specific auth flow.
-pub async fn run(config: &Config, check: bool, non_interactive: bool) -> Result<(), ZuulError> {
+pub async fn run(
+    config: &Config,
+    check: bool,
+    reconfigure: bool,
+    non_interactive: bool,
+) -> Result<(), ZuulError> {
     match config.backend_type.as_str() {
-        "gcp-secret-manager" => run_gcp(config, check, non_interactive).await,
+        "gcp-secret-manager" => run_gcp(config, check, reconfigure, non_interactive).await,
         "file" => run_file(config, check),
         other => Err(ZuulError::Config(format!(
             "Unknown backend type '{other}'. Supported: gcp-secret-manager, file."
@@ -27,7 +33,12 @@ pub async fn run(config: &Config, check: bool, non_interactive: bool) -> Result<
 // ---------------------------------------------------------------------------
 
 /// GCP-specific auth: check ADC credentials, optionally run gcloud login.
-async fn run_gcp(config: &Config, check: bool, non_interactive: bool) -> Result<(), ZuulError> {
+async fn run_gcp(
+    config: &Config,
+    check: bool,
+    reconfigure: bool,
+    non_interactive: bool,
+) -> Result<(), ZuulError> {
     let project_id = config.project_id.as_deref().ok_or_else(|| {
         ZuulError::Config(
             "No project ID configured. Run 'zuul init' to set up your project.".to_string(),
@@ -40,20 +51,71 @@ async fn run_gcp(config: &Config, check: bool, non_interactive: bool) -> Result<
 
     let credentials = config.credentials.as_deref();
 
-    match try_gcp_connect(project_id, credentials).await {
-        Ok(backend) => print_gcp_success(&backend, project_id, check).await,
-        Err(e) if check => Err(e),
-        Err(_) => {
-            println!("No valid credentials found.");
+    let needs_setup = reconfigure || try_gcp_connect(project_id, credentials).await.is_err();
 
-            if !prompt::confirm(
-                "Run 'gcloud auth application-default login' now?",
-                false,
-                non_interactive,
-            )? {
-                return Err(ZuulError::Auth("Authentication required.".to_string()));
-            }
+    if !needs_setup {
+        if check {
+            return Ok(());
+        }
+        let backend = try_gcp_connect(project_id, credentials).await?;
+        return print_gcp_success(&backend, project_id, check).await;
+    }
 
+    if check {
+        return Err(ZuulError::Auth("No valid credentials.".to_string()));
+    }
+
+    println!("No valid credentials found.\n");
+
+    // Check for an existing SA key at the conventional path
+    let auto_key_path = std::env::var("HOME").ok().map(|home| {
+        PathBuf::from(&home)
+            .join(".zuul")
+            .join(format!("{project_id}-sa.json"))
+    });
+    let has_auto_key = auto_key_path.as_ref().is_some_and(|p| p.exists());
+
+    println!("How would you like to authenticate?\n");
+    println!("  1. Run 'gcloud auth application-default login' (single GCP account)");
+    if has_auto_key {
+        println!("  2. Use detected key: ~/.zuul/{project_id}-sa.json");
+        println!("  3. Enter path to a different service account key file\n");
+    } else {
+        println!("  2. Configure a service account key file (multi-account setups)\n");
+    }
+
+    let default = if has_auto_key { "2" } else { "1" };
+    let choice = prompt::input(&format!("Choice [{default}]"), non_interactive)?;
+    let choice = choice.trim();
+    let choice = if choice.is_empty() { default } else { choice };
+
+    match choice {
+        "2" if has_auto_key => {
+            let key_str = auto_key_path.unwrap().to_string_lossy().to_string();
+            configure_sa_key(&key_str, config)?;
+
+            let backend = try_gcp_connect(project_id, Some(&key_str)).await?;
+            print_gcp_success(&backend, project_id, false).await
+        }
+        "3" if has_auto_key => {
+            let key_path = prompt::input("Path to service account key file", non_interactive)?;
+            let key_path = key_path.trim();
+
+            configure_sa_key(key_path, config)?;
+
+            let backend = try_gcp_connect(project_id, Some(key_path)).await?;
+            print_gcp_success(&backend, project_id, false).await
+        }
+        "2" => {
+            let key_path = prompt::input("Path to service account key file", non_interactive)?;
+            let key_path = key_path.trim();
+
+            configure_sa_key(key_path, config)?;
+
+            let backend = try_gcp_connect(project_id, Some(key_path)).await?;
+            print_gcp_success(&backend, project_id, false).await
+        }
+        _ => {
             run_gcloud_login()?;
 
             let backend = try_gcp_connect(project_id, credentials).await?;
@@ -101,6 +163,81 @@ async fn print_gcp_success(
         }
         Err(_) => {
             println!("Credentials valid. Could not read environment list (limited permissions).");
+        }
+    }
+
+    Ok(())
+}
+
+/// Configure a service account key file: validate it exists, test the
+/// connection, and update `.zuul.toml` with the credentials path.
+fn configure_sa_key(key_path: &str, config: &Config) -> Result<(), ZuulError> {
+    let expanded = crate::config::expand_tilde(key_path);
+    let path = PathBuf::from(&expanded);
+
+    if !path.exists() {
+        return Err(ZuulError::Auth(format!("Key file not found: '{expanded}'")));
+    }
+
+    // Validate it's parseable JSON with the expected fields
+    let content = std::fs::read_to_string(&path)
+        .map_err(|e| ZuulError::Auth(format!("Failed to read key file: {e}")))?;
+    let json: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|e| ZuulError::Auth(format!("Key file is not valid JSON: {e}")))?;
+    if json.get("type").and_then(|v| v.as_str()) != Some("service_account") {
+        return Err(ZuulError::Auth(
+            "Key file does not appear to be a service account key (missing \"type\": \"service_account\").".to_string()
+        ));
+    }
+
+    // Update .zuul.toml with the credentials path
+    if let Some(config_dir) = &config.config_dir {
+        let config_path = config_dir.join(".zuul.toml");
+        if config_path.exists() {
+            let toml_content = std::fs::read_to_string(&config_path).unwrap_or_default();
+            // Use the tilde form for the config file if the path is under HOME
+            let config_value = if let Ok(home) = std::env::var("HOME") {
+                expanded.replace(&home, "~")
+            } else {
+                expanded.clone()
+            };
+
+            let updated = if toml_content.contains("credentials") {
+                // Replace existing credentials line
+                toml_content
+                    .lines()
+                    .map(|line| {
+                        if line.trim_start().starts_with("credentials") {
+                            format!("credentials = \"{config_value}\"")
+                        } else {
+                            line.to_string()
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n")
+                    + "\n"
+            } else {
+                // Add credentials after project_id line
+                toml_content
+                    .lines()
+                    .map(|line| {
+                        if line.trim_start().starts_with("project_id") {
+                            format!("{line}\ncredentials = \"{config_value}\"")
+                        } else {
+                            line.to_string()
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n")
+                    + "\n"
+            };
+
+            std::fs::write(&config_path, updated)
+                .map_err(|e| ZuulError::Config(format!("Failed to update .zuul.toml: {e}")))?;
+            println!(
+                "{} Updated .zuul.toml with credentials path.",
+                style("✔").green()
+            );
         }
     }
 

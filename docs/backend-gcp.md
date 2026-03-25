@@ -68,6 +68,40 @@ export ZUUL_GCP_CREDENTIALS="/path/to/service-account.json"
 export ZUUL_GCP_CREDENTIALS='{"type":"service_account","project_id":"my-project",...}'
 ```
 
+## Per-project Credentials
+
+For multi-project setups, you can specify a service account key per project in `.zuul.toml`:
+
+```toml
+[backend]
+type = "gcp-secret-manager"
+project_id = "my-project-prod"
+credentials = "~/.zuul/my-project-prod-sa.json"
+```
+
+Tilde expansion (`~/`) is supported and resolves to your home directory.
+
+The credential resolution order is:
+
+1. `ZUUL_GCP_CREDENTIALS` environment variable (highest priority)
+2. `credentials` field in `.zuul.toml` (per-project service account key)
+3. Application Default Credentials (ADC fallback)
+
+### Setting up a per-project service account
+
+1. **Provision the SA via Terraform** — set `create_developer_sas = true` in `terraform.tfvars`. This creates a `zuul-dev-{name}` SA for each `user:` member, with the same role and environment access.
+
+2. **Download the key** from the GCP Console (IAM → Service Accounts → `zuul-dev-{name}` → Keys → Add Key → JSON) or via gcloud:
+   ```bash
+   mkdir -p ~/.zuul && chmod 700 ~/.zuul
+   gcloud iam service-accounts keys create ~/.zuul/{project}-sa.json \
+     --iam-account=zuul-dev-{name}@{project}.iam.gserviceaccount.com \
+     --project={project}
+   chmod 600 ~/.zuul/{project}-sa.json
+   ```
+
+3. **Configure zuul** — run `zuul auth`, choose option 2 ("Configure a service account key file"), and enter the path. This validates the key and updates `.zuul.toml` automatically.
+
 ## Permissions Model
 
 Zuul delegates all access control to GCP IAM. No client-side permission logic.

@@ -76,6 +76,16 @@ pub struct CliOverrides {
     pub config_path: Option<PathBuf>,
 }
 
+/// Expand `~` at the start of a path to the user's home directory.
+pub fn expand_tilde(path: &str) -> String {
+    if let Some(rest) = path.strip_prefix("~/")
+        && let Ok(home) = std::env::var("HOME")
+    {
+        return format!("{home}/{rest}");
+    }
+    path.to_string()
+}
+
 /// Search for `.zuul.toml` starting from `start_dir` and walking up ancestors.
 fn find_config_file(start_dir: &Path) -> Option<PathBuf> {
     let mut dir = start_dir.to_path_buf();
@@ -150,7 +160,8 @@ pub fn load_config(start_dir: &Path, cli: &CliOverrides) -> Result<Config, ZuulE
 
     let credentials = env::var("ZUUL_GCP_CREDENTIALS")
         .ok()
-        .or(file_config.backend.credentials);
+        .or(file_config.backend.credentials)
+        .map(|c| expand_tilde(&c));
 
     let default_environment = cli
         .environment
@@ -345,5 +356,56 @@ mod tests {
 
         let result = load_config(dir.path(), &CliOverrides::default());
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn expand_tilde_with_home() {
+        let home = env::var("HOME").unwrap();
+        assert_eq!(
+            expand_tilde("~/.zuul/sa.json"),
+            format!("{home}/.zuul/sa.json")
+        );
+    }
+
+    #[test]
+    fn expand_tilde_no_tilde() {
+        assert_eq!(
+            expand_tilde("/absolute/path/sa.json"),
+            "/absolute/path/sa.json"
+        );
+    }
+
+    #[test]
+    fn expand_tilde_tilde_only() {
+        // "~" alone (no slash after) should not be expanded
+        assert_eq!(expand_tilde("~"), "~");
+    }
+
+    #[test]
+    fn expand_tilde_tilde_in_middle() {
+        assert_eq!(expand_tilde("/some/~/path"), "/some/~/path");
+    }
+
+    #[test]
+    #[serial]
+    fn credentials_tilde_expanded() {
+        let home = env::var("HOME").unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        write_config(
+            dir.path(),
+            CONFIG_FILE,
+            r#"
+            [backend]
+            type = "gcp-secret-manager"
+            project_id = "my-project"
+            credentials = "~/.zuul/sa.json"
+            "#,
+        );
+
+        let config = load_config(dir.path(), &CliOverrides::default()).unwrap();
+        assert_eq!(
+            config.credentials.as_deref(),
+            Some(format!("{home}/.zuul/sa.json").as_str())
+        );
     }
 }

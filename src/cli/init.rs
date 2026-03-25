@@ -167,6 +167,13 @@ fn init_file_backend(
             ))
         })?;
 
+        // Set restrictive permissions on the directory (Unix only).
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(identity_dir, fs::Permissions::from_mode(0o700)).ok();
+        }
+
         let identity = age::x25519::Identity::generate();
         let public_key = identity.to_public();
 

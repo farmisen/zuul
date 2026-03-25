@@ -11,25 +11,33 @@ environment_descriptions = {
   dev        = "Local development"
 }
 
-# Users who get full secretmanager.admin access (required)
-admin_emails = [
-  "ops@company.com",
-]
-
-# Per-environment read-only access (optional)
-# Keys are zuul environment names, values are lists of IAM members.
-# Members must use the full IAM format: user:, serviceAccount:, or group:
-environment_accessors = {
-  dev = [
-    "user:alice@company.com",
-    "user:bob@company.com",
-  ]
-  staging = [
-    "user:alice@company.com",
-  ]
+# IAM members and their access levels (required)
+# Format: "user:email", "serviceAccount:email", or "group:email"
+# Roles:
+#   admin — full secretmanager.admin (project-wide, no environments needed)
+#   write — read + write secrets in specified environments
+#   read  — read-only access to secrets in specified environments
+members = {
+  "user:ops@company.com" = {
+    role = "admin"
+  }
+  "user:alice@company.com" = {
+    role         = "write"
+    environments = ["dev", "staging"]
+  }
+  "user:bob@company.com" = {
+    role         = "read"
+    environments = ["dev"]
+  }
 }
 
-# Service accounts to create (optional)
+# Create per-developer service accounts mirroring IAM access above (optional)
+# Useful when developers have multiple GCP accounts on one machine.
+# Each "user:" member gets a zuul-dev-{name} SA with the same permissions.
+# Developers download their key from the GCP Console → IAM → Service Accounts.
+create_developer_sas = false
+
+# CI/CD service accounts to create (optional)
 # Keys are SA names (will be prefixed with "zuul-"), values are the zuul
 # environment they can access. Multiple SAs can target the same environment.
 service_accounts = {
