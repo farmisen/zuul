@@ -11,6 +11,24 @@
 
 A CLI tool for managing secrets across multiple environments, with pluggable backend storage.
 
+## Installation
+
+**Homebrew** (macOS/Linux):
+```bash
+brew install farmisen/tap/zuul-secrets
+```
+
+**Shell installer** (macOS/Linux):
+```bash
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/farmisen/zuul/releases/latest/download/zuul-secrets-installer.sh | sh
+```
+
+**From source**:
+```bash
+cargo install zuul-secrets
+```
+
+Pre-built binaries are available for macOS (Intel + Apple Silicon) and Linux (x86_64, ARM64, musl) on the [Releases](https://github.com/farmisen/zuul/releases) page.
 
 ## Features
 
@@ -191,6 +209,31 @@ cargo test --test gcp_emulator -- --ignored
 # Stop the emulator when done
 docker compose -f docker-compose.emulator.yml down
 ```
+
+## Releasing
+
+Install [cargo-release](https://github.com/crate-ci/cargo-release) (one-time):
+```bash
+cargo install cargo-release
+```
+
+Publish a release:
+```bash
+# Patch release (0.1.0 → 0.1.1)
+cargo release patch --execute
+
+# Minor release (0.1.0 → 0.2.0)
+cargo release minor --execute
+
+# Specific version
+cargo release 0.2.0 --execute
+```
+
+This bumps the version in `Cargo.toml`, commits, tags `vX.Y.Z`, and pushes. The [release workflow](.github/workflows/release.yml) then automatically:
+- Builds binaries for macOS (Intel + Apple Silicon) and Linux (x86_64, ARM64, musl)
+- Creates a GitHub Release with binaries and checksums
+- Updates the Homebrew formula at `farmisen/homebrew-tap`
+- Generates a shell installer script
 
 ## Documentation
 
