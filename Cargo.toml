@@ -1,10 +1,23 @@
 [package]
-name = "zuul"
+name = "zuul-secrets"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.94"
 description = "CLI tool for managing secrets across multiple environments, backed by pluggable cloud secret managers"
 license = "MIT"
+repository = "https://github.com/farmisen/zuul"
+homepage = "https://github.com/farmisen/zuul"
+readme = "README.md"
+keywords = ["secrets", "environment", "gcp", "secret-manager", "devops"]
+categories = ["command-line-utilities", "development-tools"]
+
+[lib]
+name = "zuul"
+path = "src/lib.rs"
+
+[[bin]]
+name = "zuul"
+path = "src/main.rs"
 
 [dependencies]
 age = { package = "age", version = "0.10" }
