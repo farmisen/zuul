@@ -335,7 +335,7 @@ impl Backend for FileBackend {
         name: &str,
         description: Option<&str>,
     ) -> Result<Environment, ZuulError> {
-        validate_environment_name(name).map_err(ZuulError::Validation)?;
+        validate_environment_name(name)?;
 
         self.with_store_returning(|store| {
             if store.environments.contains_key(name) {
@@ -364,7 +364,7 @@ impl Backend for FileBackend {
     }
 
     async fn get_environment(&self, name: &str) -> Result<Environment, ZuulError> {
-        validate_environment_name(name).map_err(ZuulError::Validation)?;
+        validate_environment_name(name)?;
 
         self.with_store_read(|store| {
             store
@@ -391,7 +391,7 @@ impl Backend for FileBackend {
         new_description: Option<&str>,
     ) -> Result<Environment, ZuulError> {
         if let Some(n) = new_name {
-            validate_environment_name(n).map_err(ZuulError::Validation)?;
+            validate_environment_name(n)?;
         }
 
         self.with_store_returning(|store| {
@@ -443,7 +443,7 @@ impl Backend for FileBackend {
     }
 
     async fn delete_environment(&self, name: &str) -> Result<(), ZuulError> {
-        validate_environment_name(name).map_err(ZuulError::Validation)?;
+        validate_environment_name(name)?;
 
         self.with_store(|store| {
             if !store.environments.contains_key(name) {
@@ -525,7 +525,7 @@ impl Backend for FileBackend {
         environment: &str,
         value: &str,
     ) -> Result<(), ZuulError> {
-        validate_secret_name(name).map_err(ZuulError::Validation)?;
+        validate_secret_name(name)?;
 
         self.with_store(|store| {
             if !store.environments.contains_key(environment) {

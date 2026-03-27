@@ -177,7 +177,7 @@ impl Backend for GcpBackend {
     }
 
     async fn get_environment(&self, name: &str) -> Result<Environment, ZuulError> {
-        validate_environment_name(name).map_err(ZuulError::Validation)?;
+        validate_environment_name(name)?;
         let registry = self.read_registry().await?;
 
         registry
@@ -199,7 +199,7 @@ impl Backend for GcpBackend {
 
     async fn list_secrets(&self, environment: Option<&str>) -> Result<Vec<SecretEntry>, ZuulError> {
         if let Some(env) = environment {
-            validate_environment_name(env).map_err(ZuulError::Validation)?;
+            validate_environment_name(env)?;
         }
         let filter = match environment {
             Some(env) => format!("labels.zuul-managed=true AND labels.zuul-env={env}"),
@@ -238,7 +238,7 @@ impl Backend for GcpBackend {
     }
 
     async fn get_secret(&self, name: &str, environment: &str) -> Result<SecretValue, ZuulError> {
-        validate_secret_name(name).map_err(ZuulError::Validation)?;
+        validate_secret_name(name)?;
         self.ensure_environment_exists(environment).await?;
 
         let secret_id = Self::secret_id(environment, name);
@@ -278,7 +278,7 @@ impl Backend for GcpBackend {
         environment: &str,
         value: &str,
     ) -> Result<(), ZuulError> {
-        validate_secret_name(name).map_err(ZuulError::Validation)?;
+        validate_secret_name(name)?;
         self.ensure_environment_exists(environment).await?;
 
         let secret_id = Self::secret_id(environment, name);
@@ -304,7 +304,7 @@ impl Backend for GcpBackend {
     }
 
     async fn delete_secret(&self, name: &str, environment: &str) -> Result<(), ZuulError> {
-        validate_secret_name(name).map_err(ZuulError::Validation)?;
+        validate_secret_name(name)?;
         self.ensure_environment_exists(environment).await?;
 
         let secret_id = Self::secret_id(environment, name);
@@ -322,7 +322,7 @@ impl Backend for GcpBackend {
         name: &str,
         environment: &str,
     ) -> Result<HashMap<String, String>, ZuulError> {
-        validate_secret_name(name).map_err(ZuulError::Validation)?;
+        validate_secret_name(name)?;
         self.ensure_environment_exists(environment).await?;
 
         let secret_id = Self::secret_id(environment, name);
@@ -348,7 +348,7 @@ impl Backend for GcpBackend {
         key: &str,
         value: &str,
     ) -> Result<(), ZuulError> {
-        validate_metadata_key(key).map_err(ZuulError::Validation)?;
+        validate_metadata_key(key)?;
         self.ensure_environment_exists(environment).await?;
 
         let secret_id = Self::secret_id(environment, name);
@@ -374,7 +374,7 @@ impl Backend for GcpBackend {
         environment: &str,
         key: &str,
     ) -> Result<(), ZuulError> {
-        validate_metadata_key(key).map_err(ZuulError::Validation)?;
+        validate_metadata_key(key)?;
         self.ensure_environment_exists(environment).await?;
 
         let secret_id = Self::secret_id(environment, name);

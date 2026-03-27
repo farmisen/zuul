@@ -3,6 +3,8 @@ use std::collections::HashMap;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+use crate::error::ZuulError;
+
 /// A named deployment context (e.g., `production`, `staging`, `dev`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Environment {
@@ -72,37 +74,41 @@ const MAX_METADATA_KEY_LEN: usize = 63 - 11; // 63 - len("zuul-meta--")
 /// - Must not contain `__`
 /// - Max length: 50 characters
 /// - Names `registry` and `config` are reserved
-pub fn validate_environment_name(name: &str) -> Result<(), String> {
+pub fn validate_environment_name(name: &str) -> Result<(), ZuulError> {
     if name.is_empty() {
-        return Err("Environment name cannot be empty".to_string());
+        return Err(ZuulError::Validation(
+            "Environment name cannot be empty".to_string(),
+        ));
     }
     if name.len() > MAX_ENV_NAME_LEN {
-        return Err(format!(
+        return Err(ZuulError::Validation(format!(
             "Environment name '{name}' exceeds maximum length of {MAX_ENV_NAME_LEN} characters"
-        ));
+        )));
     }
     if name.contains("__") {
-        return Err(format!(
+        return Err(ZuulError::Validation(format!(
             "Environment name '{name}' is invalid: names cannot contain '__' (reserved as delimiter)"
-        ));
+        )));
     }
     if RESERVED_ENV_NAMES.contains(&name) {
-        return Err(format!("Environment name '{name}' is reserved"));
+        return Err(ZuulError::Validation(format!(
+            "Environment name '{name}' is reserved"
+        )));
     }
 
     let mut chars = name.chars();
     let first = chars.next().unwrap(); // safe: checked non-empty above
     if !first.is_ascii_lowercase() && !first.is_ascii_digit() {
-        return Err(format!(
+        return Err(ZuulError::Validation(format!(
             "Environment name '{name}' must start with a lowercase letter or digit"
-        ));
+        )));
     }
     for c in chars {
         if !c.is_ascii_lowercase() && !c.is_ascii_digit() && c != '-' {
-            return Err(format!(
+            return Err(ZuulError::Validation(format!(
                 "Environment name '{name}' contains invalid character '{c}': \
                  only lowercase letters, digits, and hyphens are allowed"
-            ));
+            )));
         }
     }
 
@@ -115,34 +121,36 @@ pub fn validate_environment_name(name: &str) -> Result<(), String> {
 /// - Must match `[A-Za-z_][A-Za-z0-9_-]*`
 /// - Must not contain `__`
 /// - Max length: 200 characters
-pub fn validate_secret_name(name: &str) -> Result<(), String> {
+pub fn validate_secret_name(name: &str) -> Result<(), ZuulError> {
     if name.is_empty() {
-        return Err("Secret name cannot be empty".to_string());
+        return Err(ZuulError::Validation(
+            "Secret name cannot be empty".to_string(),
+        ));
     }
     if name.len() > MAX_SECRET_NAME_LEN {
-        return Err(format!(
+        return Err(ZuulError::Validation(format!(
             "Secret name '{name}' exceeds maximum length of {MAX_SECRET_NAME_LEN} characters"
-        ));
+        )));
     }
     if name.contains("__") {
-        return Err(format!(
+        return Err(ZuulError::Validation(format!(
             "Secret name '{name}' is invalid: names cannot contain '__' (reserved as delimiter)"
-        ));
+        )));
     }
 
     let mut chars = name.chars();
     let first = chars.next().unwrap(); // safe: checked non-empty above
     if !first.is_ascii_alphabetic() && first != '_' {
-        return Err(format!(
+        return Err(ZuulError::Validation(format!(
             "Secret name '{name}' must start with a letter or underscore"
-        ));
+        )));
     }
     for c in chars {
         if !c.is_ascii_alphanumeric() && c != '_' && c != '-' {
-            return Err(format!(
+            return Err(ZuulError::Validation(format!(
                 "Secret name '{name}' contains invalid character '{c}': \
                  only letters, digits, underscores, and hyphens are allowed"
-            ));
+            )));
         }
     }
 
@@ -155,29 +163,31 @@ pub fn validate_secret_name(name: &str) -> Result<(), String> {
 /// - Must not be empty
 /// - Must match `[a-z0-9][a-z0-9_-]*` (lowercase, alphanumeric, underscores, hyphens)
 /// - Combined with prefix `zuul-meta--`, total must not exceed 63 characters (GCP limit)
-pub fn validate_metadata_key(key: &str) -> Result<(), String> {
+pub fn validate_metadata_key(key: &str) -> Result<(), ZuulError> {
     if key.is_empty() {
-        return Err("Metadata key cannot be empty".to_string());
+        return Err(ZuulError::Validation(
+            "Metadata key cannot be empty".to_string(),
+        ));
     }
     if key.len() > MAX_METADATA_KEY_LEN {
-        return Err(format!(
+        return Err(ZuulError::Validation(format!(
             "Metadata key '{key}' exceeds maximum length of {MAX_METADATA_KEY_LEN} characters"
-        ));
+        )));
     }
 
     let mut chars = key.chars();
     let first = chars.next().unwrap(); // safe: checked non-empty above
     if !first.is_ascii_lowercase() && !first.is_ascii_digit() {
-        return Err(format!(
+        return Err(ZuulError::Validation(format!(
             "Metadata key '{key}' must start with a lowercase letter or digit"
-        ));
+        )));
     }
     for c in chars {
         if !c.is_ascii_lowercase() && !c.is_ascii_digit() && c != '_' && c != '-' {
-            return Err(format!(
+            return Err(ZuulError::Validation(format!(
                 "Metadata key '{key}' contains invalid character '{c}': \
                  only lowercase letters, digits, underscores, and hyphens are allowed"
-            ));
+            )));
         }
     }
 
