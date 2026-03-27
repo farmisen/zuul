@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::process;
 
 use clap::{CommandFactory, Parser};
@@ -90,7 +91,6 @@ async fn create_backend(config: &Config) -> Result<BackendKind, ZuulError> {
 }
 
 async fn run(cli: Cli) -> Result<(), ZuulError> {
-    // Respect NO_COLOR env var (https://no-color.org) in addition to --no-color flag.
     if cli.no_color || std::env::var("NO_COLOR").is_ok() {
         console::set_colors_enabled(false);
         console::set_colors_enabled_stderr(false);
@@ -110,174 +110,20 @@ async fn run(cli: Cli) -> Result<(), ZuulError> {
             auth::run(&config, check, reconfigure, cli.non_interactive).await?;
         }
         Command::Env { ref command } => {
-            let config = resolve_config(&cli, None)?;
-            let backend = create_backend(&config).await?;
-            match command {
-                EnvCommand::List => env::list(&backend, &cli.format).await?,
-                EnvCommand::Create { name, description } => {
-                    env::create(&backend, name, description.as_deref(), &cli.format).await?;
-                }
-                EnvCommand::Show { name } => {
-                    env::show(&backend, name, &cli.format).await?;
-                }
-                EnvCommand::Update {
-                    name,
-                    new_name,
-                    description,
-                } => {
-                    env::update(
-                        &backend,
-                        name,
-                        new_name.as_deref(),
-                        description.as_deref(),
-                        &cli.format,
-                    )
-                    .await?;
-                }
-                EnvCommand::Delete { name, force } => {
-                    let ctx = BatchContext {
-                        progress,
-                        project_root: config.config_dir.clone(),
-                    };
-                    env::delete(&backend, name, *force, &cli.format, &ctx).await?;
-                }
-                EnvCommand::Copy {
-                    from,
-                    to,
-                    force,
-                    dry_run,
-                } => {
-                    let ctx = BatchContext {
-                        progress,
-                        project_root: config.config_dir.clone(),
-                    };
-                    env::copy(&backend, from, to, *force, *dry_run, &cli.format, &ctx).await?;
-                }
-                EnvCommand::Clear {
-                    name,
-                    force,
-                    dry_run,
-                } => {
-                    let ctx = BatchContext {
-                        progress,
-                        project_root: config.config_dir.clone(),
-                    };
-                    env::clear(&backend, name, *force, *dry_run, &cli.format, &ctx).await?;
-                }
-            }
+            handle_env(&cli, command, progress).await?;
         }
-        Command::Secret { ref command } => match command {
-            SecretCommand::List { env, with_metadata } => {
-                let config = resolve_config(&cli, env.as_deref())?;
-                let backend = create_backend(&config).await?;
-                secret::list(
-                    &backend,
-                    env.as_deref(),
-                    *with_metadata,
-                    &cli.format,
-                    progress,
-                )
-                .await?;
-            }
-            SecretCommand::Get { name, env } => {
-                let config = resolve_config(&cli, env.as_deref())?;
-                let backend = create_backend(&config).await?;
-                let env = config.default_environment.as_deref();
-                secret::get(&backend, name, env, progress).await?;
-            }
-            SecretCommand::Set {
-                name,
-                value,
-                from_file,
-                from_stdin,
-                env,
-            } => {
-                let config = resolve_config(&cli, env.as_deref())?;
-                let backend = create_backend(&config).await?;
-                let env = config.default_environment.as_deref();
-                secret::set(
-                    &backend,
-                    name,
-                    env,
-                    value.as_deref(),
-                    from_file.as_deref(),
-                    *from_stdin,
-                    progress,
-                )
-                .await?;
-            }
-            SecretCommand::Delete {
-                name,
-                force,
-                dry_run,
-                env,
-            } => {
-                let config = resolve_config(&cli, env.as_deref())?;
-                let backend = create_backend(&config).await?;
-                let env = config.default_environment.as_deref();
-                secret::delete(&backend, name, env, *force, *dry_run, &cli.format, progress)
-                    .await?;
-            }
-            SecretCommand::Info { name, env } => {
-                let config = resolve_config(&cli, env.as_deref())?;
-                let backend = create_backend(&config).await?;
-                let env = config.default_environment.as_deref();
-                secret::info(&backend, name, env, &cli.format, progress).await?;
-            }
-            SecretCommand::Copy {
-                name,
-                from,
-                to,
-                force,
-            } => {
-                let config = resolve_config(&cli, None)?;
-                let backend = create_backend(&config).await?;
-                secret::copy(&backend, name, from, to, *force, progress).await?;
-            }
-            SecretCommand::Metadata { command: meta_cmd } => match meta_cmd {
-                MetadataCommand::List { name, env } => {
-                    let config = resolve_config(&cli, None)?;
-                    let backend = create_backend(&config).await?;
-                    metadata::list(&backend, name, env.as_deref(), &cli.format).await?;
-                }
-                MetadataCommand::Set {
-                    name,
-                    key,
-                    value,
-                    env,
-                } => {
-                    let config = resolve_config(&cli, None)?;
-                    let backend = create_backend(&config).await?;
-                    let ctx = BatchContext {
-                        progress,
-                        project_root: config.config_dir.clone(),
-                    };
-                    metadata::set(&backend, name, env.as_deref(), key, value, &ctx).await?;
-                }
-                MetadataCommand::Delete { name, key, env } => {
-                    let config = resolve_config(&cli, None)?;
-                    let backend = create_backend(&config).await?;
-                    let ctx = BatchContext {
-                        progress,
-                        project_root: config.config_dir.clone(),
-                    };
-                    metadata::delete(&backend, name, env.as_deref(), key, &ctx).await?;
-                }
-            },
-        },
+        Command::Secret { ref command } => {
+            handle_secret(&cli, command, progress).await?;
+        }
         Command::Export {
             ref env,
             ref export_format,
             ref output,
             overrides,
         } => {
-            let config = resolve_config(&cli, env.as_deref())?;
-            let backend = create_backend(&config).await?;
-            let env = secret::require_env(config.default_environment.as_deref())?;
-            export::run(
-                &backend,
-                &config,
-                env,
+            handle_export(
+                &cli,
+                env.as_deref(),
                 export_format,
                 output.as_deref(),
                 overrides,
@@ -290,10 +136,7 @@ async fn run(cli: Cli) -> Result<(), ZuulError> {
             overrides,
             ref command,
         } => {
-            let config = resolve_config(&cli, env.as_deref())?;
-            let backend = create_backend(&config).await?;
-            let env = secret::require_env(config.default_environment.as_deref())?;
-            let exit_code = run::run(&backend, &config, env, overrides, command, progress).await?;
+            let exit_code = handle_run(&cli, env.as_deref(), overrides, command, progress).await?;
             process::exit(exit_code);
         }
         Command::Import {
@@ -303,21 +146,14 @@ async fn run(cli: Cli) -> Result<(), ZuulError> {
             overwrite,
             dry_run,
         } => {
-            let config = resolve_config(&cli, env.as_deref())?;
-            let backend = create_backend(&config).await?;
-            let env = secret::require_env(config.default_environment.as_deref())?;
-            let ctx = BatchContext {
-                progress,
-                project_root: config.config_dir.clone(),
-            };
-            import::run(
-                &backend,
-                env,
+            handle_import(
+                &cli,
+                env.as_deref(),
                 file,
                 import_format.as_ref(),
                 overwrite,
                 dry_run,
-                &ctx,
+                progress,
             )
             .await?;
         }
@@ -331,158 +167,14 @@ async fn run(cli: Cli) -> Result<(), ZuulError> {
             diff::run(&backend, env_a, env_b, show_values, &cli.format, progress).await?;
         }
         Command::Recover { ref command } => {
-            let config = resolve_config(&cli, None)?;
-            let project_root = config.config_dir.as_deref().ok_or_else(|| {
-                ZuulError::Config(
-                    "No .zuul.toml found. Run 'zuul init' to set up your project.".to_string(),
-                )
-            })?;
-            match command {
-                RecoverCommand::Status => {
-                    recover::status(project_root)?;
-                }
-                RecoverCommand::Resume { force } => {
-                    let backend = create_backend(&config).await?;
-                    recover::resume(
-                        &backend,
-                        project_root,
-                        *force,
-                        cli.non_interactive,
-                        progress,
-                    )
-                    .await?;
-                }
-                RecoverCommand::Abort { force } => {
-                    recover::abort(project_root, *force, cli.non_interactive)?;
-                }
-            }
+            handle_recover(&cli, command, progress).await?;
         }
         Command::Deploy { ref command } => {
-            let config = resolve_config(&cli, None)?;
-            let backend = create_backend(&config).await?;
-            match command {
-                DeployCommand::Fly {
-                    env,
-                    app,
-                    no_sync,
-                    fly_args,
-                } => {
-                    use zuul::cli::deploy;
-
-                    backend.get_environment(env).await?;
-                    let sp = zuul::progress::spinner("Fetching secrets...", progress);
-                    let backend_secrets = backend.list_secrets_for_environment(env).await?;
-                    sp.finish_and_clear();
-
-                    let secrets: std::collections::HashMap<String, String> = backend_secrets
-                        .into_iter()
-                        .map(|(name, sv)| (name, sv.value))
-                        .collect();
-
-                    let exit_code =
-                        deploy::fly::run(secrets, app.as_deref(), *no_sync, fly_args, progress)?;
-                    process::exit(exit_code);
-                }
-            }
+            let exit_code = handle_deploy(&cli, command, progress).await?;
+            process::exit(exit_code);
         }
         Command::Sync { ref command } => {
-            let config = resolve_config(&cli, None)?;
-            let backend = create_backend(&config).await?;
-            match command {
-                SyncCommand::Netlify {
-                    env,
-                    context,
-                    scope,
-                    dry_run,
-                    prune,
-                    force,
-                } => {
-                    use zuul::cli::sync::{self, SyncTarget, netlify::NetlifyTarget};
-
-                    let target = NetlifyTarget::new(context, scope)?;
-
-                    // Fetch zuul secrets (no local overrides for sync)
-                    backend.get_environment(env).await?;
-                    let sp = zuul::progress::spinner("Fetching secrets...", progress);
-                    let backend_secrets = backend.list_secrets_for_environment(env).await?;
-                    sp.finish_and_clear();
-
-                    let zuul_secrets: std::collections::HashMap<String, String> = backend_secrets
-                        .into_iter()
-                        .map(|(name, sv)| (name, sv.value))
-                        .collect();
-
-                    // Fetch current platform vars
-                    let sp = zuul::progress::spinner(
-                        &format!("Fetching {} variables...", target.name()),
-                        progress,
-                    );
-                    let platform_vars = target.list_vars()?;
-                    sp.finish_and_clear();
-
-                    // Compute diff and execute
-                    let actions = sync::compute_diff(&zuul_secrets, &platform_vars, *prune);
-                    sync::execute_sync(&sync::SyncOpts {
-                        target: &target,
-                        actions: &actions,
-                        dry_run: *dry_run,
-                        prune: *prune,
-                        force: *force,
-                        non_interactive: cli.non_interactive,
-                    })?;
-                }
-                SyncCommand::Fly {
-                    env,
-                    app,
-                    stage,
-                    dry_run,
-                    prune,
-                    force,
-                } => {
-                    use zuul::cli::sync::{self, SyncTarget, fly::FlyTarget};
-
-                    let target = FlyTarget::new(app.as_deref(), *stage);
-
-                    // Fetch zuul secrets (no local overrides for sync)
-                    backend.get_environment(env).await?;
-                    let sp = zuul::progress::spinner("Fetching secrets...", progress);
-                    let backend_secrets = backend.list_secrets_for_environment(env).await?;
-                    sp.finish_and_clear();
-
-                    let zuul_secrets: std::collections::HashMap<String, String> = backend_secrets
-                        .into_iter()
-                        .map(|(name, sv)| (name, sv.value))
-                        .collect();
-
-                    // Fetch current Fly secrets (names only — values not available)
-                    let sp = zuul::progress::spinner(
-                        &format!("Fetching {} secrets...", target.name()),
-                        progress,
-                    );
-                    let platform_vars = target.list_vars()?;
-                    sp.finish_and_clear();
-
-                    // Compute diff and execute
-                    let actions = sync::compute_diff(&zuul_secrets, &platform_vars, *prune);
-                    sync::execute_sync(&sync::SyncOpts {
-                        target: &target,
-                        actions: &actions,
-                        dry_run: *dry_run,
-                        prune: *prune,
-                        force: *force,
-                        non_interactive: cli.non_interactive,
-                    })?;
-
-                    if *stage && !*dry_run {
-                        println!(
-                            "\nSecrets staged. Run `fly secrets deploy{}` to apply.",
-                            app.as_ref()
-                                .map(|a| format!(" --app {a}"))
-                                .unwrap_or_default()
-                        );
-                    }
-                }
-            }
+            handle_sync(&cli, command, progress).await?;
         }
         Command::Audit {
             ref env,
@@ -498,5 +190,399 @@ async fn run(cli: Cli) -> Result<(), ZuulError> {
         }
     }
 
+    Ok(())
+}
+
+async fn handle_env(
+    cli: &Cli,
+    command: &EnvCommand,
+    progress: ProgressOpts,
+) -> Result<(), ZuulError> {
+    let config = resolve_config(cli, None)?;
+    let backend = create_backend(&config).await?;
+    match command {
+        EnvCommand::List => env::list(&backend, &cli.format).await?,
+        EnvCommand::Create { name, description } => {
+            env::create(&backend, name, description.as_deref(), &cli.format).await?;
+        }
+        EnvCommand::Show { name } => {
+            env::show(&backend, name, &cli.format).await?;
+        }
+        EnvCommand::Update {
+            name,
+            new_name,
+            description,
+        } => {
+            env::update(
+                &backend,
+                name,
+                new_name.as_deref(),
+                description.as_deref(),
+                &cli.format,
+            )
+            .await?;
+        }
+        EnvCommand::Delete { name, force } => {
+            let ctx = BatchContext {
+                progress,
+                project_root: config.config_dir.clone(),
+            };
+            env::delete(&backend, name, *force, &cli.format, &ctx).await?;
+        }
+        EnvCommand::Copy {
+            from,
+            to,
+            force,
+            dry_run,
+        } => {
+            let ctx = BatchContext {
+                progress,
+                project_root: config.config_dir.clone(),
+            };
+            env::copy(&backend, from, to, *force, *dry_run, &cli.format, &ctx).await?;
+        }
+        EnvCommand::Clear {
+            name,
+            force,
+            dry_run,
+        } => {
+            let ctx = BatchContext {
+                progress,
+                project_root: config.config_dir.clone(),
+            };
+            env::clear(&backend, name, *force, *dry_run, &cli.format, &ctx).await?;
+        }
+    }
+    Ok(())
+}
+
+async fn handle_secret(
+    cli: &Cli,
+    command: &SecretCommand,
+    progress: ProgressOpts,
+) -> Result<(), ZuulError> {
+    match command {
+        SecretCommand::List { env, with_metadata } => {
+            let config = resolve_config(cli, env.as_deref())?;
+            let backend = create_backend(&config).await?;
+            secret::list(
+                &backend,
+                env.as_deref(),
+                *with_metadata,
+                &cli.format,
+                progress,
+            )
+            .await?;
+        }
+        SecretCommand::Get { name, env } => {
+            let config = resolve_config(cli, env.as_deref())?;
+            let backend = create_backend(&config).await?;
+            let env = config.default_environment.as_deref();
+            secret::get(&backend, name, env, progress).await?;
+        }
+        SecretCommand::Set {
+            name,
+            value,
+            from_file,
+            from_stdin,
+            env,
+        } => {
+            let config = resolve_config(cli, env.as_deref())?;
+            let backend = create_backend(&config).await?;
+            let env = config.default_environment.as_deref();
+            secret::set(
+                &backend,
+                name,
+                env,
+                value.as_deref(),
+                from_file.as_deref(),
+                *from_stdin,
+                progress,
+            )
+            .await?;
+        }
+        SecretCommand::Delete {
+            name,
+            force,
+            dry_run,
+            env,
+        } => {
+            let config = resolve_config(cli, env.as_deref())?;
+            let backend = create_backend(&config).await?;
+            let env = config.default_environment.as_deref();
+            secret::delete(&backend, name, env, *force, *dry_run, &cli.format, progress).await?;
+        }
+        SecretCommand::Info { name, env } => {
+            let config = resolve_config(cli, env.as_deref())?;
+            let backend = create_backend(&config).await?;
+            let env = config.default_environment.as_deref();
+            secret::info(&backend, name, env, &cli.format, progress).await?;
+        }
+        SecretCommand::Copy {
+            name,
+            from,
+            to,
+            force,
+        } => {
+            let config = resolve_config(cli, None)?;
+            let backend = create_backend(&config).await?;
+            secret::copy(&backend, name, from, to, *force, progress).await?;
+        }
+        SecretCommand::Metadata { command: meta_cmd } => {
+            handle_metadata(cli, meta_cmd, progress).await?;
+        }
+    }
+    Ok(())
+}
+
+async fn handle_metadata(
+    cli: &Cli,
+    command: &MetadataCommand,
+    progress: ProgressOpts,
+) -> Result<(), ZuulError> {
+    let config = resolve_config(cli, None)?;
+    let backend = create_backend(&config).await?;
+    match command {
+        MetadataCommand::List { name, env } => {
+            metadata::list(&backend, name, env.as_deref(), &cli.format).await?;
+        }
+        MetadataCommand::Set {
+            name,
+            key,
+            value,
+            env,
+        } => {
+            let ctx = BatchContext {
+                progress,
+                project_root: config.config_dir.clone(),
+            };
+            metadata::set(&backend, name, env.as_deref(), key, value, &ctx).await?;
+        }
+        MetadataCommand::Delete { name, key, env } => {
+            let ctx = BatchContext {
+                progress,
+                project_root: config.config_dir.clone(),
+            };
+            metadata::delete(&backend, name, env.as_deref(), key, &ctx).await?;
+        }
+    }
+    Ok(())
+}
+
+async fn handle_export(
+    cli: &Cli,
+    env_arg: Option<&str>,
+    export_format: &zuul::cli::ExportFormat,
+    output: Option<&std::path::Path>,
+    overrides: bool,
+    progress: ProgressOpts,
+) -> Result<(), ZuulError> {
+    let config = resolve_config(cli, env_arg)?;
+    let backend = create_backend(&config).await?;
+    let env = secret::require_env(config.default_environment.as_deref())?;
+    export::run(
+        &backend,
+        &config,
+        env,
+        export_format,
+        output,
+        overrides,
+        progress,
+    )
+    .await
+}
+
+async fn handle_run(
+    cli: &Cli,
+    env_arg: Option<&str>,
+    overrides: bool,
+    command: &[String],
+    progress: ProgressOpts,
+) -> Result<i32, ZuulError> {
+    let config = resolve_config(cli, env_arg)?;
+    let backend = create_backend(&config).await?;
+    let env = secret::require_env(config.default_environment.as_deref())?;
+    run::run(&backend, &config, env, overrides, command, progress).await
+}
+
+async fn handle_import(
+    cli: &Cli,
+    env_arg: Option<&str>,
+    file: &std::path::Path,
+    import_format: Option<&zuul::cli::ImportFormat>,
+    overwrite: bool,
+    dry_run: bool,
+    progress: ProgressOpts,
+) -> Result<(), ZuulError> {
+    let config = resolve_config(cli, env_arg)?;
+    let backend = create_backend(&config).await?;
+    let env = secret::require_env(config.default_environment.as_deref())?;
+    let ctx = BatchContext {
+        progress,
+        project_root: config.config_dir.clone(),
+    };
+    import::run(&backend, env, file, import_format, overwrite, dry_run, &ctx).await
+}
+
+async fn handle_recover(
+    cli: &Cli,
+    command: &RecoverCommand,
+    progress: ProgressOpts,
+) -> Result<(), ZuulError> {
+    let config = resolve_config(cli, None)?;
+    let project_root = config.config_dir.as_deref().ok_or_else(|| {
+        ZuulError::Config(
+            "No .zuul.toml found. Run 'zuul init' to set up your project.".to_string(),
+        )
+    })?;
+    match command {
+        RecoverCommand::Status => {
+            recover::status(project_root)?;
+        }
+        RecoverCommand::Resume { force } => {
+            let backend = create_backend(&config).await?;
+            recover::resume(
+                &backend,
+                project_root,
+                *force,
+                cli.non_interactive,
+                progress,
+            )
+            .await?;
+        }
+        RecoverCommand::Abort { force } => {
+            recover::abort(project_root, *force, cli.non_interactive)?;
+        }
+    }
+    Ok(())
+}
+
+async fn handle_deploy(
+    cli: &Cli,
+    command: &DeployCommand,
+    progress: ProgressOpts,
+) -> Result<i32, ZuulError> {
+    let config = resolve_config(cli, None)?;
+    let backend = create_backend(&config).await?;
+    match command {
+        DeployCommand::Fly {
+            env,
+            app,
+            no_sync,
+            fly_args,
+        } => {
+            use zuul::cli::deploy;
+
+            backend.get_environment(env).await?;
+            let sp = zuul::progress::spinner("Fetching secrets...", progress);
+            let backend_secrets = backend.list_secrets_for_environment(env).await?;
+            sp.finish_and_clear();
+
+            let secrets: HashMap<String, String> = backend_secrets
+                .into_iter()
+                .map(|(name, sv)| (name, sv.value))
+                .collect();
+
+            deploy::fly::run(secrets, app.as_deref(), *no_sync, fly_args, progress)
+        }
+    }
+}
+
+async fn handle_sync(
+    cli: &Cli,
+    command: &SyncCommand,
+    progress: ProgressOpts,
+) -> Result<(), ZuulError> {
+    let config = resolve_config(cli, None)?;
+    let backend = create_backend(&config).await?;
+    match command {
+        SyncCommand::Netlify {
+            env,
+            context,
+            scope,
+            dry_run,
+            prune,
+            force,
+        } => {
+            use zuul::cli::sync::{self, SyncTarget, netlify::NetlifyTarget};
+
+            let target = NetlifyTarget::new(context, scope)?;
+
+            backend.get_environment(env).await?;
+            let sp = zuul::progress::spinner("Fetching secrets...", progress);
+            let backend_secrets = backend.list_secrets_for_environment(env).await?;
+            sp.finish_and_clear();
+
+            let zuul_secrets: HashMap<String, String> = backend_secrets
+                .into_iter()
+                .map(|(name, sv)| (name, sv.value))
+                .collect();
+
+            let sp = zuul::progress::spinner(
+                &format!("Fetching {} variables...", target.name()),
+                progress,
+            );
+            let platform_vars = target.list_vars()?;
+            sp.finish_and_clear();
+
+            let actions = sync::compute_diff(&zuul_secrets, &platform_vars, *prune);
+            sync::execute_sync(&sync::SyncOpts {
+                target: &target,
+                actions: &actions,
+                dry_run: *dry_run,
+                prune: *prune,
+                force: *force,
+                non_interactive: cli.non_interactive,
+            })?;
+        }
+        SyncCommand::Fly {
+            env,
+            app,
+            stage,
+            dry_run,
+            prune,
+            force,
+        } => {
+            use zuul::cli::sync::{self, SyncTarget, fly::FlyTarget};
+
+            let target = FlyTarget::new(app.as_deref(), *stage);
+
+            backend.get_environment(env).await?;
+            let sp = zuul::progress::spinner("Fetching secrets...", progress);
+            let backend_secrets = backend.list_secrets_for_environment(env).await?;
+            sp.finish_and_clear();
+
+            let zuul_secrets: HashMap<String, String> = backend_secrets
+                .into_iter()
+                .map(|(name, sv)| (name, sv.value))
+                .collect();
+
+            let sp = zuul::progress::spinner(
+                &format!("Fetching {} secrets...", target.name()),
+                progress,
+            );
+            let platform_vars = target.list_vars()?;
+            sp.finish_and_clear();
+
+            let actions = sync::compute_diff(&zuul_secrets, &platform_vars, *prune);
+            sync::execute_sync(&sync::SyncOpts {
+                target: &target,
+                actions: &actions,
+                dry_run: *dry_run,
+                prune: *prune,
+                force: *force,
+                non_interactive: cli.non_interactive,
+            })?;
+
+            if *stage && !*dry_run {
+                println!(
+                    "\nSecrets staged. Run `fly secrets deploy{}` to apply.",
+                    app.as_ref()
+                        .map(|a| format!(" --app {a}"))
+                        .unwrap_or_default()
+                );
+            }
+        }
+    }
     Ok(())
 }
