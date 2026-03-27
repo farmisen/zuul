@@ -497,6 +497,92 @@ fn secret_copy_to_nonexistent_env_fails() {
 }
 
 // ---------------------------------------------------------------------------
+// secret copy --dry-run
+// ---------------------------------------------------------------------------
+
+#[test]
+fn secret_copy_dry_run() {
+    let dir = setup_project();
+    let bin = zuul_bin();
+
+    zuul_ok(bin, dir.path(), &["env", "create", "dev"]);
+    zuul_ok(bin, dir.path(), &["env", "create", "staging"]);
+    zuul_ok(
+        bin,
+        dir.path(),
+        &["secret", "set", "KEY", "--env", "dev", "val"],
+    );
+
+    let stdout = zuul_ok(
+        bin,
+        dir.path(),
+        &[
+            "secret",
+            "copy",
+            "KEY",
+            "--from",
+            "dev",
+            "--to",
+            "staging",
+            "--dry-run",
+        ],
+    );
+    assert!(
+        stdout.contains("Would copy") && stdout.contains("No changes"),
+        "dry run should show preview, got: {stdout}"
+    );
+
+    // Verify the secret was NOT actually copied
+    let stderr = zuul_err(
+        bin,
+        dir.path(),
+        &["secret", "get", "KEY", "--env", "staging"],
+    );
+    assert!(
+        stderr.contains("not found") || stderr.contains("Not found"),
+        "secret should not exist in staging after dry run, got: {stderr}"
+    );
+}
+
+#[test]
+fn secret_copy_dry_run_shows_overwrite_warning() {
+    let dir = setup_project();
+    let bin = zuul_bin();
+
+    zuul_ok(bin, dir.path(), &["env", "create", "dev"]);
+    zuul_ok(bin, dir.path(), &["env", "create", "staging"]);
+    zuul_ok(
+        bin,
+        dir.path(),
+        &["secret", "set", "KEY", "--env", "dev", "new_val"],
+    );
+    zuul_ok(
+        bin,
+        dir.path(),
+        &["secret", "set", "KEY", "--env", "staging", "old_val"],
+    );
+
+    let stdout = zuul_ok(
+        bin,
+        dir.path(),
+        &[
+            "secret",
+            "copy",
+            "KEY",
+            "--from",
+            "dev",
+            "--to",
+            "staging",
+            "--dry-run",
+        ],
+    );
+    assert!(
+        stdout.contains("already exists") && stdout.contains("overwrite"),
+        "dry run should warn about overwrite, got: {stdout}"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // secret delete --dry-run
 // ---------------------------------------------------------------------------
 

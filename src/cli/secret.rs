@@ -388,13 +388,27 @@ pub async fn copy(
     from: &str,
     to: &str,
     force: bool,
+    dry_run: bool,
     progress: ProgressOpts,
 ) -> Result<(), ZuulError> {
     let sp = progress::spinner(&format!("Copying secret '{name}'..."), progress);
-    let source = backend.get_secret(name, from).await?;
+    let _source = backend.get_secret(name, from).await?;
 
     // Check if the secret already exists in the target environment.
     let exists_in_target = backend.get_secret(name, to).await.is_ok();
+    sp.finish_and_clear();
+
+    if dry_run {
+        if exists_in_target {
+            println!(
+                "Would copy secret '{name}' from '{from}' to '{to}' (already exists — would overwrite)."
+            );
+        } else {
+            println!("Would copy secret '{name}' from '{from}' to '{to}'.");
+        }
+        println!("\nNo changes were made. Remove --dry-run to execute.");
+        return Ok(());
+    }
 
     if exists_in_target
         && !prompt::confirm(
@@ -407,8 +421,7 @@ pub async fn copy(
         return Ok(());
     }
 
-    backend.set_secret(name, to, &source.value).await?;
-    sp.finish_and_clear();
+    backend.set_secret(name, to, &_source.value).await?;
 
     if !progress.non_interactive {
         println!(

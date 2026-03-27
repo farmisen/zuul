@@ -210,7 +210,6 @@ REDIS_URL = "redis://localhost:6379"
 --project <PROJECT_ID>  Override GCP project ID
 --format <FORMAT>       Output format: text (default), json
 --config <PATH>         Path to config file
---quiet, -q             Suppress non-essential output
 --verbose, -v           Verbose output for debugging
 ```
 

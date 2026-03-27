@@ -351,7 +351,7 @@ pub enum EnvCommand {
         force: bool,
     },
 
-    /// Copy all secrets from one environment to another
+    /// Copy all secrets from one environment to another (e.g., zuul env copy staging production)
     Copy {
         /// Source environment
         from: String,
@@ -455,7 +455,7 @@ pub enum SecretCommand {
         env: Option<String>,
     },
 
-    /// Copy a secret from one environment to another
+    /// Copy a single secret between environments (e.g., zuul secret copy API_KEY --from staging --to production)
     Copy {
         /// Secret name
         name: String,
@@ -471,6 +471,10 @@ pub enum SecretCommand {
         /// Overwrite if exists in target
         #[arg(long)]
         force: bool,
+
+        /// Preview what would be copied without making changes
+        #[arg(long)]
+        dry_run: bool,
     },
 
     /// Manage secret metadata

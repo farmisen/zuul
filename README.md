@@ -147,9 +147,16 @@ See [`.envrc.example`](.envrc.example) for a ready-to-use template.
 | `zuul deploy fly` | Deploy to Fly.io with secrets synced and injected |
 | `zuul sync netlify` | Sync secrets to Netlify's environment variables |
 | `zuul sync fly` | Sync secrets to Fly.io |
+| `zuul audit` | Show who has access to secrets (GCP backend only) |
 | `zuul completions <shell>` | Generate shell completions (bash, zsh, fish, etc.) |
 
 Use `zuul --help` or `zuul <command> --help` for details.
+
+**Notable flags:**
+
+- `zuul secret list --with-metadata` — include metadata key-value pairs in the output
+- `zuul sync fly --stage` — stage secrets without redeploying (run `fly secrets deploy` later)
+- `--format text|json` controls the output mode (text tables or JSON). `--export-format` and `--import-format` control the file serialization format (dotenv, json, yaml, etc.) — these are separate concerns.
 
 **Note:** `env create/update/delete` work directly with the file backend. For GCP, environments are managed by Terraform — these commands return an error directing you to `terraform apply`.
 

@@ -323,10 +323,11 @@ async fn handle_secret(
             from,
             to,
             force,
+            dry_run,
         } => {
             let config = resolve_config(cli, None)?;
             let backend = create_backend(&config).await?;
-            secret::copy(&backend, name, from, to, *force, progress).await?;
+            secret::copy(&backend, name, from, to, *force, *dry_run, progress).await?;
         }
         SecretCommand::Metadata { command: meta_cmd } => {
             handle_metadata(cli, meta_cmd, progress).await?;
