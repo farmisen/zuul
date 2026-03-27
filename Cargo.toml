@@ -1,6 +1,6 @@
 [package]
 name = "zuul-secrets"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 rust-version = "1.93"
 description = "CLI tool for managing secrets across multiple environments, backed by pluggable cloud secret managers"
