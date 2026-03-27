@@ -21,7 +21,7 @@ pub async fn run(
 ) -> Result<(), ZuulError> {
     match config.backend_type.as_str() {
         "gcp-secret-manager" => run_gcp(config, check, reconfigure, non_interactive).await,
-        "file" => run_file(config, check),
+        "file" => run_file(config, check).await,
         other => Err(ZuulError::Config(format!(
             "Unknown backend type '{other}'. Supported: gcp-secret-manager, file."
         ))),
@@ -272,7 +272,7 @@ fn run_gcloud_login() -> Result<(), ZuulError> {
 // ---------------------------------------------------------------------------
 
 /// File backend auth: validate the passphrase can decrypt the store.
-fn run_file(config: &Config, check: bool) -> Result<(), ZuulError> {
+async fn run_file(config: &Config, check: bool) -> Result<(), ZuulError> {
     use crate::backend::file_backend::{DEFAULT_STORE_FILE, FileBackend};
 
     let config_dir = config.config_dir.as_deref().ok_or_else(|| {
@@ -299,7 +299,7 @@ fn run_file(config: &Config, check: bool) -> Result<(), ZuulError> {
     let backend = FileBackend::new(store_path, identity);
 
     // Try to read the store — this validates the passphrase.
-    match tokio::runtime::Handle::current().block_on(backend.list_environments()) {
+    match backend.list_environments().await {
         Ok(envs) => {
             if check {
                 return Ok(());

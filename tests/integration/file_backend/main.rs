@@ -14,10 +14,13 @@ mod helpers;
 mod metadata;
 mod secrets;
 
+mod cli_audit;
+mod cli_auth;
 mod cli_diff;
 mod cli_edge_cases;
 mod cli_env;
 mod cli_export_import;
 mod cli_init;
+mod cli_json_output;
 mod cli_metadata;
 mod cli_secret;
