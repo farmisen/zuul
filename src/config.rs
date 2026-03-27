@@ -66,6 +66,22 @@ pub struct Config {
     pub file_path: Option<String>,
     /// Path to an age identity file (file backend only).
     pub identity: Option<String>,
+    /// Whether a `.zuul.toml` config file was found.
+    pub config_found: bool,
+}
+
+impl Config {
+    /// Returns an error if no `.zuul.toml` was found during config resolution.
+    pub fn require_config(&self) -> Result<(), ZuulError> {
+        if !self.config_found {
+            return Err(ZuulError::Config(
+                "No .zuul.toml found in this directory or any parent. \
+                 Run 'zuul init' to create one."
+                    .to_string(),
+            ));
+        }
+        Ok(())
+    }
 }
 
 /// CLI-provided overrides for configuration resolution.
@@ -115,6 +131,7 @@ pub fn load_config(start_dir: &Path, cli: &CliOverrides) -> Result<Config, ZuulE
         .clone()
         .or_else(|| find_config_file(start_dir));
 
+    let config_found = config_path.is_some();
     let (file_config, config_dir) = match &config_path {
         Some(path) => {
             let content = std::fs::read_to_string(path).map_err(|e| {
@@ -183,6 +200,7 @@ pub fn load_config(start_dir: &Path, cli: &CliOverrides) -> Result<Config, ZuulE
         config_dir,
         file_path,
         identity,
+        config_found,
     })
 }
 
@@ -240,6 +258,28 @@ mod tests {
         let config = load_config(dir.path(), &CliOverrides::default()).unwrap();
         assert_eq!(config.backend_type, "");
         assert_eq!(config.project_id, None);
+        assert!(!config.config_found);
+    }
+
+    #[test]
+    #[serial]
+    fn require_config_errors_when_no_config_found() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = load_config(dir.path(), &CliOverrides::default()).unwrap();
+        let err = config.require_config().unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("No .zuul.toml found"));
+        assert!(msg.contains("zuul init"));
+    }
+
+    #[test]
+    #[serial]
+    fn require_config_ok_when_config_exists() {
+        let dir = tempfile::tempdir().unwrap();
+        write_config(dir.path(), CONFIG_FILE, "[backend]\n");
+        let config = load_config(dir.path(), &CliOverrides::default()).unwrap();
+        assert!(config.config_found);
+        assert!(config.require_config().is_ok());
     }
 
     #[test]

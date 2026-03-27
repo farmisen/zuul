@@ -37,14 +37,16 @@ fn get_cwd() -> Result<std::path::PathBuf, ZuulError> {
 
 fn resolve_config(cli: &Cli, env: Option<&str>) -> Result<Config, ZuulError> {
     let cwd = get_cwd()?;
-    load_config(
+    let config = load_config(
         &cwd,
         &CliOverrides {
             environment: env.map(String::from),
             project_id: cli.project.clone(),
             config_path: cli.config.clone(),
         },
-    )
+    )?;
+    config.require_config()?;
+    Ok(config)
 }
 
 async fn create_backend(config: &Config) -> Result<BackendKind, ZuulError> {

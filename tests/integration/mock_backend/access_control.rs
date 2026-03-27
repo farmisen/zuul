@@ -123,6 +123,7 @@ async fn dev_scoped_export_production_denied_via_handler() {
         config_dir: None,
         file_path: None,
         identity: None,
+        config_found: true,
     };
 
     let err = cli::export::run(
