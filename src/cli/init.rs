@@ -139,9 +139,15 @@ fn init_file_backend(
         // choice == "1" or empty (default) → identity file
     }
 
-    // Resolve identity file path:
-    // 1. ZUUL_KEY_FILE env var (explicit override)
-    // 2. Default: ~/.zuul/key.txt
+    init_file_backend_identity(dir, config_path)
+}
+
+/// Initialize the file backend with an age identity file.
+///
+/// Resolves the identity file path from `ZUUL_KEY_FILE` env var or the
+/// default `~/.zuul/key.txt`, generates a new keypair if needed, writes
+/// the config file, and creates an empty encrypted store.
+fn init_file_backend_identity(dir: &Path, config_path: &Path) -> Result<(), ZuulError> {
     let identity_path = if let Ok(path) = std::env::var("ZUUL_KEY_FILE") {
         PathBuf::from(path)
     } else {
@@ -151,61 +157,11 @@ fn init_file_backend(
             .join(DEFAULT_IDENTITY_DIR)
             .join(DEFAULT_IDENTITY_FILE)
     };
-    let identity_dir = identity_path
-        .parent()
-        .ok_or_else(|| ZuulError::Config("Invalid identity file path.".to_string()))?;
 
     if identity_path.exists() {
-        // Reuse existing identity file
         println!("Using existing identity file: {}", identity_path.display());
     } else {
-        // Generate a new keypair
-        fs::create_dir_all(identity_dir).map_err(|e| {
-            ZuulError::Config(format!(
-                "Failed to create directory '{}': {e}",
-                identity_dir.display()
-            ))
-        })?;
-
-        // Set restrictive permissions on the directory (Unix only).
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            fs::set_permissions(identity_dir, fs::Permissions::from_mode(0o700)).ok();
-        }
-
-        let identity = age::x25519::Identity::generate();
-        let public_key = identity.to_public();
-
-        let key_content = format!(
-            "# created: {}\n# public key: {}\n{}\n",
-            chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ"),
-            public_key,
-            identity.to_string().expose_secret()
-        );
-
-        fs::write(&identity_path, &key_content).map_err(|e| {
-            ZuulError::Config(format!(
-                "Failed to write identity file '{}': {e}",
-                identity_path.display()
-            ))
-        })?;
-
-        // Set restrictive permissions (Unix only).
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            fs::set_permissions(&identity_path, fs::Permissions::from_mode(0o600)).map_err(
-                |e| {
-                    ZuulError::Config(format!(
-                        "Failed to set permissions on '{}': {e}",
-                        identity_path.display()
-                    ))
-                },
-            )?;
-        }
-
-        println!("Generated identity file: {}", identity_path.display());
+        generate_identity_file(&identity_path)?;
     }
 
     let identity_path_str = format!("~/{DEFAULT_IDENTITY_DIR}/{DEFAULT_IDENTITY_FILE}");
@@ -222,17 +178,66 @@ fn init_file_backend(
     fs::write(config_path, &config_content)
         .map_err(|e| ZuulError::Config(format!("Failed to write {CONFIG_FILE}: {e}")))?;
 
-    // Create the empty encrypted store using the identity.
     let store_path = dir.join(DEFAULT_STORE_FILE);
     create_empty_store_with_identity(&store_path, &identity_path)?;
 
-    // Add the encrypted store to .gitignore (it contains secrets).
     add_to_gitignore(dir, DEFAULT_STORE_FILE)?;
 
     println!("\nNext steps:");
     println!("  zuul env create dev               # Create your first environment");
     println!("  zuul secret set KEY --env dev      # Set a secret");
 
+    Ok(())
+}
+
+/// Generate a new age identity file at the given path.
+fn generate_identity_file(identity_path: &Path) -> Result<(), ZuulError> {
+    let identity_dir = identity_path
+        .parent()
+        .ok_or_else(|| ZuulError::Config("Invalid identity file path.".to_string()))?;
+
+    fs::create_dir_all(identity_dir).map_err(|e| {
+        ZuulError::Config(format!(
+            "Failed to create directory '{}': {e}",
+            identity_dir.display()
+        ))
+    })?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(identity_dir, fs::Permissions::from_mode(0o700)).ok();
+    }
+
+    let identity = age::x25519::Identity::generate();
+    let public_key = identity.to_public();
+
+    let key_content = format!(
+        "# created: {}\n# public key: {}\n{}\n",
+        chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ"),
+        public_key,
+        identity.to_string().expose_secret()
+    );
+
+    fs::write(identity_path, &key_content).map_err(|e| {
+        ZuulError::Config(format!(
+            "Failed to write identity file '{}': {e}",
+            identity_path.display()
+        ))
+    })?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(identity_path, fs::Permissions::from_mode(0o600)).map_err(|e| {
+            ZuulError::Config(format!(
+                "Failed to set permissions on '{}': {e}",
+                identity_path.display()
+            ))
+        })?;
+    }
+
+    println!("Generated identity file: {}", identity_path.display());
     Ok(())
 }
 
