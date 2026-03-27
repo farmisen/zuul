@@ -2,7 +2,7 @@
 name = "zuul-secrets"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.94"
+rust-version = "1.93"
 description = "CLI tool for managing secrets across multiple environments, backed by pluggable cloud secret managers"
 license = "MIT"
 repository = "https://github.com/farmisen/zuul"
