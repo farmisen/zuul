@@ -4,7 +4,7 @@ use comfy_table::{ContentArrangement, Table};
 use console::style;
 
 use crate::backend::Backend;
-use crate::cli::OutputFormat;
+use crate::cli::{OutputFormat, to_json_pretty};
 use crate::error::ZuulError;
 use crate::progress::{self, ProgressOpts};
 
@@ -193,8 +193,7 @@ fn print_json(entries: &[&DiffEntry], show_values: bool) -> Result<(), ZuulError
         })
         .collect();
 
-    let json = serde_json::to_string_pretty(&json_entries)
-        .map_err(|e| ZuulError::Backend(format!("Failed to serialize: {e}")))?;
+    let json = to_json_pretty(&json_entries)?;
     println!("{json}");
     Ok(())
 }

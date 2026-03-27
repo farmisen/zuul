@@ -2,7 +2,7 @@ use comfy_table::{ContentArrangement, Table};
 use console::style;
 
 use crate::backend::Backend;
-use crate::cli::OutputFormat;
+use crate::cli::{OutputFormat, to_json_pretty};
 use crate::error::ZuulError;
 use crate::journal;
 use crate::progress::{self, BatchContext};
@@ -47,8 +47,7 @@ pub async fn list(backend: &impl Backend, format: &OutputFormat) -> Result<(), Z
                     "secrets": count,
                 }));
             }
-            let json = serde_json::to_string_pretty(&entries)
-                .map_err(|e| ZuulError::Backend(format!("Failed to serialize: {e}")))?;
+            let json = to_json_pretty(&entries)?;
             println!("{json}");
         }
     }
@@ -70,8 +69,7 @@ pub async fn create(
             println!("{} Created environment '{}'.", style("✔").green(), env.name);
         }
         OutputFormat::Json => {
-            let json = serde_json::to_string_pretty(&env)
-                .map_err(|e| ZuulError::Backend(format!("Failed to serialize: {e}")))?;
+            let json = to_json_pretty(&env)?;
             println!("{json}");
         }
     }
@@ -102,8 +100,7 @@ pub async fn update(
             println!("{} Updated environment '{}'.", style("✔").green(), env.name);
         }
         OutputFormat::Json => {
-            let json = serde_json::to_string_pretty(&env)
-                .map_err(|e| ZuulError::Backend(format!("Failed to serialize: {e}")))?;
+            let json = to_json_pretty(&env)?;
             println!("{json}");
         }
     }
@@ -207,8 +204,7 @@ pub async fn delete(
                 "environment": name,
                 "secrets_deleted": secrets.len(),
             });
-            let json = serde_json::to_string_pretty(&value)
-                .map_err(|e| ZuulError::Backend(format!("Failed to serialize: {e}")))?;
+            let json = to_json_pretty(&value)?;
             println!("{json}");
         }
     }
@@ -255,8 +251,7 @@ pub async fn show(
                 "created_at": env.created_at,
                 "updated_at": env.updated_at,
             });
-            let json = serde_json::to_string_pretty(&value)
-                .map_err(|e| ZuulError::Backend(format!("Failed to serialize: {e}")))?;
+            let json = to_json_pretty(&value)?;
             println!("{json}");
         }
     }
@@ -299,8 +294,7 @@ pub async fn copy(
                     "overwritten": 0,
                     "dry_run": dry_run,
                 });
-                let json = serde_json::to_string_pretty(&value)
-                    .map_err(|e| ZuulError::Backend(format!("Failed to serialize: {e}")))?;
+                let json = to_json_pretty(&value)?;
                 println!("{json}");
             }
         }
@@ -351,8 +345,7 @@ pub async fn copy(
                 "dry_run": dry_run,
             });
             if dry_run {
-                let json = serde_json::to_string_pretty(&value)
-                    .map_err(|e| ZuulError::Backend(format!("Failed to serialize: {e}")))?;
+                let json = to_json_pretty(&value)?;
                 println!("{json}");
                 return Ok(());
             }
@@ -428,8 +421,7 @@ pub async fn copy(
                 "new": new_count,
                 "overwritten": overwrite_count,
             });
-            let json = serde_json::to_string_pretty(&value)
-                .map_err(|e| ZuulError::Backend(format!("Failed to serialize: {e}")))?;
+            let json = to_json_pretty(&value)?;
             println!("{json}");
         }
     }
@@ -465,8 +457,7 @@ pub async fn clear(
                     "secrets_deleted": 0,
                     "dry_run": dry_run,
                 });
-                let json = serde_json::to_string_pretty(&value)
-                    .map_err(|e| ZuulError::Backend(format!("Failed to serialize: {e}")))?;
+                let json = to_json_pretty(&value)?;
                 println!("{json}");
             }
         }
@@ -499,8 +490,7 @@ pub async fn clear(
                 "dry_run": dry_run,
             });
             if dry_run {
-                let json = serde_json::to_string_pretty(&value)
-                    .map_err(|e| ZuulError::Backend(format!("Failed to serialize: {e}")))?;
+                let json = to_json_pretty(&value)?;
                 println!("{json}");
                 return Ok(());
             }
@@ -571,8 +561,7 @@ pub async fn clear(
                 "environment": name,
                 "secrets_deleted": secrets.len(),
             });
-            let json = serde_json::to_string_pretty(&value)
-                .map_err(|e| ZuulError::Backend(format!("Failed to serialize: {e}")))?;
+            let json = to_json_pretty(&value)?;
             println!("{json}");
         }
     }

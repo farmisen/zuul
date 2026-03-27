@@ -2,7 +2,7 @@ use comfy_table::{ContentArrangement, Table};
 use console::style;
 
 use crate::backend::Backend;
-use crate::cli::OutputFormat;
+use crate::cli::{OutputFormat, to_json_pretty};
 use crate::error::ZuulError;
 use crate::journal;
 use crate::progress::BatchContext;
@@ -74,8 +74,7 @@ pub async fn list(
                 println!("{table}");
             }
             OutputFormat::Json => {
-                let json = serde_json::to_string_pretty(&metadata)
-                    .map_err(|e| ZuulError::Backend(format!("Failed to serialize: {e}")))?;
+                let json = to_json_pretty(&metadata)?;
                 println!("{json}");
             }
         }
@@ -129,8 +128,7 @@ pub async fn list(
                 println!("{table}");
             }
             OutputFormat::Json => {
-                let json = serde_json::to_string_pretty(&env_metadata)
-                    .map_err(|e| ZuulError::Backend(format!("Failed to serialize: {e}")))?;
+                let json = to_json_pretty(&env_metadata)?;
                 println!("{json}");
             }
         }

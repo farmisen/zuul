@@ -7,6 +7,11 @@ use crate::cli::OutputFormat;
 use crate::error::ZuulError;
 use crate::models::AccessBinding;
 
+/// IAM identity prefix for user accounts.
+const USER_PREFIX: &str = "user:";
+/// IAM identity prefix for service accounts.
+const SERVICE_ACCOUNT_PREFIX: &str = "serviceAccount:";
+
 /// Run the `zuul audit` command.
 pub async fn run(
     backend: &impl Backend,
@@ -100,7 +105,7 @@ fn print_matrix(bindings: &[AccessBinding], known_envs: &[String]) {
     let users: Vec<_> = bindings
         .iter()
         .map(|b| &b.identity)
-        .filter(|id| id.starts_with("user:"))
+        .filter(|id| id.starts_with(USER_PREFIX))
         .collect::<BTreeSet<_>>()
         .into_iter()
         .cloned()
@@ -109,7 +114,7 @@ fn print_matrix(bindings: &[AccessBinding], known_envs: &[String]) {
     let sas: BTreeSet<_> = bindings
         .iter()
         .map(|b| &b.identity)
-        .filter(|id| id.starts_with("serviceAccount:"))
+        .filter(|id| id.starts_with(SERVICE_ACCOUNT_PREFIX))
         .cloned()
         .collect();
 
@@ -208,7 +213,9 @@ fn print_matrix(bindings: &[AccessBinding], known_envs: &[String]) {
 
 /// Format a service account identity for display (strip the "serviceAccount:" prefix).
 fn short_sa(sa: &str) -> String {
-    sa.strip_prefix("serviceAccount:").unwrap_or(sa).to_string()
+    sa.strip_prefix(SERVICE_ACCOUNT_PREFIX)
+        .unwrap_or(sa)
+        .to_string()
 }
 
 /// Get a comparable access summary string for matching users to SAs.

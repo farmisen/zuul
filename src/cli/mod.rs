@@ -15,6 +15,15 @@ pub mod sync;
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand, ValueEnum};
+use serde::Serialize;
+
+use crate::error::ZuulError;
+
+/// Serialize a value to pretty-printed JSON, mapping errors to `ZuulError`.
+pub fn to_json_pretty<T: Serialize>(value: &T) -> Result<String, ZuulError> {
+    serde_json::to_string_pretty(value)
+        .map_err(|e| ZuulError::Backend(format!("Failed to serialize: {e}")))
+}
 
 /// CLI tool for managing secrets across multiple environments.
 #[derive(Debug, Parser)]

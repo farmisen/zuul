@@ -13,6 +13,19 @@ use crate::models::{
 /// The GCP secret name used to store the environment registry.
 const REGISTRY_SECRET_ID: &str = "zuul__registry";
 
+/// Map a backend "not found" error to a typed `ZuulError::NotFound` for secrets.
+fn map_secret_not_found(name: &str, environment: &str, err: ZuulError) -> ZuulError {
+    if matches!(&err, ZuulError::Backend(msg) if msg.contains("not found")) {
+        ZuulError::NotFound {
+            resource_type: ResourceType::Secret,
+            name: name.to_string(),
+            environment: Some(environment.to_string()),
+        }
+    } else {
+        err
+    }
+}
+
 /// Convert a `google_cloud_wkt::Timestamp` to a chrono `DateTime<Utc>`.
 fn wkt_timestamp_to_chrono(ts: Option<google_cloud_wkt::Timestamp>) -> DateTime<Utc> {
     ts.and_then(|t| DateTime::from_timestamp(t.seconds(), t.nanos() as u32))
@@ -231,17 +244,11 @@ impl Backend for GcpBackend {
         let secret_id = Self::secret_id(environment, name);
 
         // Get the secret metadata for create_time.
-        let secret_meta = self.client.get_secret(&secret_id).await.map_err(|e| {
-            if matches!(&e, ZuulError::Backend(msg) if msg.contains("not found")) {
-                ZuulError::NotFound {
-                    resource_type: ResourceType::Secret,
-                    name: name.to_string(),
-                    environment: Some(environment.to_string()),
-                }
-            } else {
-                e
-            }
-        })?;
+        let secret_meta = self
+            .client
+            .get_secret(&secret_id)
+            .await
+            .map_err(|e| map_secret_not_found(name, environment, e))?;
 
         let created_at = wkt_timestamp_to_chrono(secret_meta.create_time);
 
@@ -250,17 +257,7 @@ impl Backend for GcpBackend {
             .client
             .access_secret_version(&secret_id)
             .await
-            .map_err(|e| {
-                if matches!(&e, ZuulError::Backend(msg) if msg.contains("not found")) {
-                    ZuulError::NotFound {
-                        resource_type: ResourceType::Secret,
-                        name: name.to_string(),
-                        environment: Some(environment.to_string()),
-                    }
-                } else {
-                    e
-                }
-            })?;
+            .map_err(|e| map_secret_not_found(name, environment, e))?;
 
         let value = String::from_utf8(data)
             .map_err(|e| ZuulError::Backend(format!("Secret value contains invalid UTF-8: {e}")))?;
@@ -312,17 +309,10 @@ impl Backend for GcpBackend {
 
         let secret_id = Self::secret_id(environment, name);
 
-        self.client.delete_secret(&secret_id).await.map_err(|e| {
-            if matches!(&e, ZuulError::Backend(msg) if msg.contains("not found")) {
-                ZuulError::NotFound {
-                    resource_type: ResourceType::Secret,
-                    name: name.to_string(),
-                    environment: Some(environment.to_string()),
-                }
-            } else {
-                e
-            }
-        })
+        self.client
+            .delete_secret(&secret_id)
+            .await
+            .map_err(|e| map_secret_not_found(name, environment, e))
     }
 
     // --- Metadata operations ---
@@ -336,17 +326,11 @@ impl Backend for GcpBackend {
         self.ensure_environment_exists(environment).await?;
 
         let secret_id = Self::secret_id(environment, name);
-        let secret = self.client.get_secret(&secret_id).await.map_err(|e| {
-            if matches!(&e, ZuulError::Backend(msg) if msg.contains("not found")) {
-                ZuulError::NotFound {
-                    resource_type: ResourceType::Secret,
-                    name: name.to_string(),
-                    environment: Some(environment.to_string()),
-                }
-            } else {
-                e
-            }
-        })?;
+        let secret = self
+            .client
+            .get_secret(&secret_id)
+            .await
+            .map_err(|e| map_secret_not_found(name, environment, e))?;
 
         let metadata = secret
             .annotations
@@ -368,17 +352,11 @@ impl Backend for GcpBackend {
         self.ensure_environment_exists(environment).await?;
 
         let secret_id = Self::secret_id(environment, name);
-        let secret = self.client.get_secret(&secret_id).await.map_err(|e| {
-            if matches!(&e, ZuulError::Backend(msg) if msg.contains("not found")) {
-                ZuulError::NotFound {
-                    resource_type: ResourceType::Secret,
-                    name: name.to_string(),
-                    environment: Some(environment.to_string()),
-                }
-            } else {
-                e
-            }
-        })?;
+        let secret = self
+            .client
+            .get_secret(&secret_id)
+            .await
+            .map_err(|e| map_secret_not_found(name, environment, e))?;
 
         let mut annotations = secret.annotations;
         annotations.insert(format!("{METADATA_PREFIX}{key}"), value.to_string());
@@ -400,17 +378,11 @@ impl Backend for GcpBackend {
         self.ensure_environment_exists(environment).await?;
 
         let secret_id = Self::secret_id(environment, name);
-        let secret = self.client.get_secret(&secret_id).await.map_err(|e| {
-            if matches!(&e, ZuulError::Backend(msg) if msg.contains("not found")) {
-                ZuulError::NotFound {
-                    resource_type: ResourceType::Secret,
-                    name: name.to_string(),
-                    environment: Some(environment.to_string()),
-                }
-            } else {
-                e
-            }
-        })?;
+        let secret = self
+            .client
+            .get_secret(&secret_id)
+            .await
+            .map_err(|e| map_secret_not_found(name, environment, e))?;
 
         let annotation_key = format!("{METADATA_PREFIX}{key}");
         let mut annotations = secret.annotations;
