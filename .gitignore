@@ -3,6 +3,13 @@
 .tldr/
 .tldrignore
 .zuul.local.toml
+.zuul.toml
+.env.local
+.mcp.json
 .terraform/
+terraform/terraform.tfstate
+terraform/terraform.tfstate.backup
+terraform/terraform.tfvars
 CLAUDE.md
 docs/implementation-plan.md
+thoughts/
