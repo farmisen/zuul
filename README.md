@@ -113,12 +113,19 @@ environment = "dev"
 Local overrides for development. Added to `.gitignore` automatically.
 
 ```toml
+# Per-developer backend overrides (e.g., different credential path)
+[backend]
+credentials = "~/.zuul/my-personal-sa.json"
+
+# Secret value overrides for local development
 [secrets]
 DATABASE_URL = "postgres://localhost:5432/mydb_local"
 REDIS_URL = "redis://localhost:6379"
 ```
 
-Local overrides from `.zuul.local.toml` are not applied by default. Use `--overrides` with `zuul export` or `zuul run` to merge them.
+The `[backend]` section overrides fields from `.zuul.toml` — useful when team members store credentials at different paths. Supports: `project_id`, `credentials`, `path`, `identity`.
+
+Secret overrides from `[secrets]` are not applied by default. Use `--overrides` with `zuul export` or `zuul run` to merge them.
 
 ## direnv Integration
 

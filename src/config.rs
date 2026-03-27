@@ -45,6 +45,23 @@ struct DefaultsConfig {
 struct LocalConfigFile {
     #[serde(default)]
     secrets: HashMap<String, String>,
+    #[serde(default)]
+    backend: LocalBackendConfig,
+}
+
+/// The optional `[backend]` section of `.zuul.local.toml`.
+///
+/// Allows per-developer overrides for backend settings (e.g., credential paths)
+/// without modifying the shared `.zuul.toml`.
+#[derive(Debug, Clone, Deserialize, Default)]
+#[serde(default)]
+struct LocalBackendConfig {
+    project_id: Option<String>,
+    credentials: Option<String>,
+    /// Path to the encrypted store file (file backend only).
+    path: Option<String>,
+    /// Path to an age identity file (file backend only).
+    identity: Option<String>,
 }
 
 /// Resolved application configuration after merging all sources.
@@ -146,25 +163,25 @@ pub fn load_config(start_dir: &Path, cli: &CliOverrides) -> Result<Config, ZuulE
     };
 
     // Parse local overrides
-    let local_overrides = match &config_dir {
+    let local_config = match &config_dir {
         Some(dir) => {
             let local_path = dir.join(LOCAL_CONFIG_FILE);
             if local_path.is_file() {
                 let content = std::fs::read_to_string(&local_path).map_err(|e| {
                     ZuulError::Config(format!("Failed to read {}: {e}", local_path.display()))
                 })?;
-                let parsed: LocalConfigFile = toml::from_str(&content).map_err(|e| {
+                toml::from_str::<LocalConfigFile>(&content).map_err(|e| {
                     ZuulError::Config(format!("Failed to parse {}: {e}", local_path.display()))
-                })?;
-                parsed.secrets
+                })?
             } else {
-                HashMap::new()
+                LocalConfigFile::default()
             }
         }
-        None => HashMap::new(),
+        None => LocalConfigFile::default(),
     };
+    let local_overrides = local_config.secrets;
 
-    // Resolve: CLI flags → env vars → config file → defaults
+    // Resolve: CLI flags → env vars → local overrides → config file → defaults
     let backend_type = env::var("ZUUL_BACKEND")
         .ok()
         .unwrap_or(file_config.backend.backend_type);
@@ -173,10 +190,12 @@ pub fn load_config(start_dir: &Path, cli: &CliOverrides) -> Result<Config, ZuulE
         .project_id
         .clone()
         .or_else(|| env::var("ZUUL_GCP_PROJECT").ok())
+        .or(local_config.backend.project_id)
         .or(file_config.backend.project_id);
 
     let credentials = env::var("ZUUL_GCP_CREDENTIALS")
         .ok()
+        .or(local_config.backend.credentials)
         .or(file_config.backend.credentials)
         .map(|c| expand_tilde(&c));
 
@@ -186,9 +205,10 @@ pub fn load_config(start_dir: &Path, cli: &CliOverrides) -> Result<Config, ZuulE
         .or_else(|| env::var("ZUUL_DEFAULT_ENV").ok())
         .or(file_config.defaults.environment);
 
-    let file_path = file_config.backend.path;
+    let file_path = local_config.backend.path.or(file_config.backend.path);
     let identity = env::var("ZUUL_KEY_FILE")
         .ok()
+        .or(local_config.backend.identity)
         .or(file_config.backend.identity);
 
     Ok(Config {
@@ -327,6 +347,113 @@ mod tests {
         assert_eq!(
             config.local_overrides.get("API_KEY").map(String::as_str),
             Some("local-key")
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn local_backend_overrides_config_file() {
+        let dir = tempfile::tempdir().unwrap();
+        write_config(
+            dir.path(),
+            CONFIG_FILE,
+            r#"
+            [backend]
+            type = "gcp-secret-manager"
+            project_id = "shared-project"
+            credentials = "~/.zuul/shared-sa.json"
+            "#,
+        );
+        write_config(
+            dir.path(),
+            LOCAL_CONFIG_FILE,
+            r#"
+            [backend]
+            project_id = "my-project"
+            credentials = "~/.zuul/my-sa.json"
+            "#,
+        );
+
+        let config = load_config(dir.path(), &CliOverrides::default()).unwrap();
+        assert_eq!(config.project_id.as_deref(), Some("my-project"));
+        assert!(
+            config
+                .credentials
+                .as_deref()
+                .unwrap()
+                .contains("my-sa.json"),
+            "local credentials should override, got: {:?}",
+            config.credentials
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn local_backend_partial_override() {
+        let dir = tempfile::tempdir().unwrap();
+        write_config(
+            dir.path(),
+            CONFIG_FILE,
+            r#"
+            [backend]
+            type = "gcp-secret-manager"
+            project_id = "shared-project"
+            credentials = "~/.zuul/shared-sa.json"
+            "#,
+        );
+        // Only override credentials, not project_id
+        write_config(
+            dir.path(),
+            LOCAL_CONFIG_FILE,
+            r#"
+            [backend]
+            credentials = "~/.zuul/my-sa.json"
+            "#,
+        );
+
+        let config = load_config(dir.path(), &CliOverrides::default()).unwrap();
+        assert_eq!(
+            config.project_id.as_deref(),
+            Some("shared-project"),
+            "project_id should come from .zuul.toml"
+        );
+        assert!(
+            config
+                .credentials
+                .as_deref()
+                .unwrap()
+                .contains("my-sa.json"),
+            "credentials should come from local override"
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn local_backend_identity_override() {
+        let dir = tempfile::tempdir().unwrap();
+        write_config(
+            dir.path(),
+            CONFIG_FILE,
+            r#"
+            [backend]
+            type = "file"
+            identity = "~/.zuul/key.txt"
+            "#,
+        );
+        write_config(
+            dir.path(),
+            LOCAL_CONFIG_FILE,
+            r#"
+            [backend]
+            identity = "/custom/path/key.txt"
+            "#,
+        );
+
+        let config = load_config(dir.path(), &CliOverrides::default()).unwrap();
+        assert_eq!(
+            config.identity.as_deref(),
+            Some("/custom/path/key.txt"),
+            "local identity should override"
         );
     }
 
